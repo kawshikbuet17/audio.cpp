@@ -1,0 +1,1328 @@
+==========================================
+Started: Tue Jul 21 14:28:25 +06 2026
+Running all audio.cpp OmniVoice combinations
+Device: cuda:0 | Language: Bengali | Seed: 42
+Global Log: benchmark_audiocpp_omnivoice_clone.log
+==========================================
+
+[1/40] weight_type=native | steps=1 -> audiocpp_omnivoice_clone_native_step1.wav
+  Started at: 14:28:25
+[TRACE ts=20260721-142825] runtime.model.family omnivoice
+[TRACE ts=20260721-142825] runtime.model.variant omnivoice
+[TRACE ts=20260721-142825] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142825] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142825] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142825] runtime.model.task_count 1
+[TRACE ts=20260721-142825] runtime.model.language_count 1
+[TRACE ts=20260721-142825] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142825] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142825] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+[TIMING ts=20260721-142828] omnivoice.reference.encode_ms 1.694331
+[TIMING ts=20260721-142828] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142828] omnivoice.session.prompt_ms 4.885884
+[TIMING ts=20260721-142828] omnivoice.session.generate_ms 45.857672
+[TIMING ts=20260721-142828] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142828] omnivoice.generator.graph.rebuild_ms 3.147206
+[TIMING ts=20260721-142828] omnivoice.session.decode_ms 40.017818
+[TIMING ts=20260721-142828] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142828] omnivoice.decoder.graph.rebuild_ms 1.499329
+[TIMING ts=20260721-142828] omnivoice.session.postprocess_ms 7.848688
+[TIMING ts=20260721-142828] session.wall_ms 100.576786
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_native_step1.wav
+  Completed at: 14:28:28
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_native_step1.wav
+
+[2/40] weight_type=f32 | steps=1 -> audiocpp_omnivoice_clone_f32_step1.wav
+  Started at: 14:28:28
+[TRACE ts=20260721-142828] runtime.model.family omnivoice
+[TRACE ts=20260721-142828] runtime.model.variant omnivoice
+[TRACE ts=20260721-142828] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142828] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142828] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142828] runtime.model.task_count 1
+[TRACE ts=20260721-142828] runtime.model.language_count 1
+[TRACE ts=20260721-142828] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142828] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142828] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+[TIMING ts=20260721-142831] omnivoice.reference.encode_ms 1.694097
+[TIMING ts=20260721-142831] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142831] omnivoice.session.prompt_ms 2.825327
+[TIMING ts=20260721-142831] omnivoice.session.generate_ms 47.935338
+[TIMING ts=20260721-142831] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142831] omnivoice.generator.graph.rebuild_ms 3.021924
+[TIMING ts=20260721-142831] omnivoice.session.decode_ms 39.515238
+[TIMING ts=20260721-142831] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142831] omnivoice.decoder.graph.rebuild_ms 1.505249
+[TIMING ts=20260721-142831] omnivoice.session.postprocess_ms 7.76833
+[TIMING ts=20260721-142831] session.wall_ms 99.960477
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f32_step1.wav
+  Completed at: 14:28:32
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f32_step1.wav
+
+[3/40] weight_type=f16 | steps=1 -> audiocpp_omnivoice_clone_f16_step1.wav
+  Started at: 14:28:32
+[TRACE ts=20260721-142832] runtime.model.family omnivoice
+[TRACE ts=20260721-142832] runtime.model.variant omnivoice
+[TRACE ts=20260721-142832] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142832] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142832] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142832] runtime.model.task_count 1
+[TRACE ts=20260721-142832] runtime.model.language_count 1
+[TRACE ts=20260721-142832] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142832] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142832] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+[TIMING ts=20260721-142834] omnivoice.reference.encode_ms 1.694324
+[TIMING ts=20260721-142834] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142834] omnivoice.session.prompt_ms 2.861206
+[TIMING ts=20260721-142834] omnivoice.session.generate_ms 45.696839
+[TIMING ts=20260721-142834] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142834] omnivoice.generator.graph.rebuild_ms 3.079994
+[TIMING ts=20260721-142834] omnivoice.session.decode_ms 39.341665
+[TIMING ts=20260721-142834] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142834] omnivoice.decoder.graph.rebuild_ms 1.423896
+[TIMING ts=20260721-142834] omnivoice.session.postprocess_ms 7.804827
+[TIMING ts=20260721-142834] session.wall_ms 97.620009
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f16_step1.wav
+  Completed at: 14:28:35
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f16_step1.wav
+
+[4/40] weight_type=bf16 | steps=1 -> audiocpp_omnivoice_clone_bf16_step1.wav
+  Started at: 14:28:35
+[TRACE ts=20260721-142835] runtime.model.family omnivoice
+[TRACE ts=20260721-142835] runtime.model.variant omnivoice
+[TRACE ts=20260721-142835] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142835] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142835] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142835] runtime.model.task_count 1
+[TRACE ts=20260721-142835] runtime.model.language_count 1
+[TRACE ts=20260721-142835] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142835] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142835] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+[TIMING ts=20260721-142838] omnivoice.reference.encode_ms 1.705643
+[TIMING ts=20260721-142838] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142838] omnivoice.session.prompt_ms 2.866228
+[TIMING ts=20260721-142838] omnivoice.session.generate_ms 47.360844
+[TIMING ts=20260721-142838] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142838] omnivoice.generator.graph.rebuild_ms 3.052174
+[TIMING ts=20260721-142838] omnivoice.session.decode_ms 36.875556
+[TIMING ts=20260721-142838] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142838] omnivoice.decoder.graph.rebuild_ms 1.259679
+[TIMING ts=20260721-142838] omnivoice.session.postprocess_ms 6.93157
+[TIMING ts=20260721-142838] session.wall_ms 96.001847
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step1.wav
+  Completed at: 14:28:38
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step1.wav
+
+[5/40] weight_type=q8_0 | steps=1 -> audiocpp_omnivoice_clone_q8_0_step1.wav
+  Started at: 14:28:38
+[TRACE ts=20260721-142838] runtime.model.family omnivoice
+[TRACE ts=20260721-142838] runtime.model.variant omnivoice
+[TRACE ts=20260721-142838] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142838] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142838] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142838] runtime.model.task_count 1
+[TRACE ts=20260721-142838] runtime.model.language_count 1
+[TRACE ts=20260721-142838] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142838] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142838] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+[TIMING ts=20260721-142841] omnivoice.reference.encode_ms 1.699397
+[TIMING ts=20260721-142841] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142841] omnivoice.session.prompt_ms 2.861435
+[TIMING ts=20260721-142841] omnivoice.session.generate_ms 44.803049
+[TIMING ts=20260721-142841] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142841] omnivoice.generator.graph.rebuild_ms 3.031593
+[TIMING ts=20260721-142841] omnivoice.session.decode_ms 48.774557
+[TIMING ts=20260721-142841] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142841] omnivoice.decoder.graph.rebuild_ms 1.503323
+[TIMING ts=20260721-142841] omnivoice.session.postprocess_ms 9.585082
+[TIMING ts=20260721-142841] session.wall_ms 107.987039
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step1.wav
+  Completed at: 14:28:41
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step1.wav
+
+[6/40] weight_type=native | steps=2 -> audiocpp_omnivoice_clone_native_step2.wav
+  Started at: 14:28:41
+[TRACE ts=20260721-142841] runtime.model.family omnivoice
+[TRACE ts=20260721-142841] runtime.model.variant omnivoice
+[TRACE ts=20260721-142841] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142841] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142841] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142841] runtime.model.task_count 1
+[TRACE ts=20260721-142841] runtime.model.language_count 1
+[TRACE ts=20260721-142841] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142841] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142841] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142845] omnivoice.reference.encode_ms 2.239387
+[TIMING ts=20260721-142845] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142845] omnivoice.session.prompt_ms 3.304372
+[TIMING ts=20260721-142845] omnivoice.session.generate_ms 90.131341
+[TIMING ts=20260721-142845] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142845] omnivoice.generator.graph.rebuild_ms 3.396271
+[TIMING ts=20260721-142845] omnivoice.session.decode_ms 36.56086
+[TIMING ts=20260721-142845] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142845] omnivoice.decoder.graph.rebuild_ms 1.382171
+[TIMING ts=20260721-142845] omnivoice.session.postprocess_ms 6.408757
+[TIMING ts=20260721-142845] session.wall_ms 138.860246
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_native_step2.wav
+  Completed at: 14:28:45
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_native_step2.wav
+
+[7/40] weight_type=f32 | steps=2 -> audiocpp_omnivoice_clone_f32_step2.wav
+  Started at: 14:28:45
+[TRACE ts=20260721-142845] runtime.model.family omnivoice
+[TRACE ts=20260721-142845] runtime.model.variant omnivoice
+[TRACE ts=20260721-142845] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142845] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142845] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142845] runtime.model.task_count 1
+[TRACE ts=20260721-142845] runtime.model.language_count 1
+[TRACE ts=20260721-142845] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142845] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142845] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142848] omnivoice.reference.encode_ms 1.694288
+[TIMING ts=20260721-142848] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142848] omnivoice.session.prompt_ms 2.874395
+[TIMING ts=20260721-142848] omnivoice.session.generate_ms 88.1148
+[TIMING ts=20260721-142848] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142848] omnivoice.generator.graph.rebuild_ms 3.139407
+[TIMING ts=20260721-142848] omnivoice.session.decode_ms 42.318362
+[TIMING ts=20260721-142848] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142848] omnivoice.decoder.graph.rebuild_ms 1.437866
+[TIMING ts=20260721-142848] omnivoice.session.postprocess_ms 7.864318
+[TIMING ts=20260721-142848] session.wall_ms 143.129162
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f32_step2.wav
+  Completed at: 14:28:48
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f32_step2.wav
+
+[8/40] weight_type=f16 | steps=2 -> audiocpp_omnivoice_clone_f16_step2.wav
+  Started at: 14:28:48
+[TRACE ts=20260721-142848] runtime.model.family omnivoice
+[TRACE ts=20260721-142848] runtime.model.variant omnivoice
+[TRACE ts=20260721-142848] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142848] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142848] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142848] runtime.model.task_count 1
+[TRACE ts=20260721-142848] runtime.model.language_count 1
+[TRACE ts=20260721-142848] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142848] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142848] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142851] omnivoice.reference.encode_ms 1.771075
+[TIMING ts=20260721-142851] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142851] omnivoice.session.prompt_ms 2.940962
+[TIMING ts=20260721-142851] omnivoice.session.generate_ms 90.55645
+[TIMING ts=20260721-142851] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142851] omnivoice.generator.graph.rebuild_ms 3.006456
+[TIMING ts=20260721-142851] omnivoice.session.decode_ms 38.578864
+[TIMING ts=20260721-142851] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142851] omnivoice.decoder.graph.rebuild_ms 1.482337
+[TIMING ts=20260721-142851] omnivoice.session.postprocess_ms 7.865592
+[TIMING ts=20260721-142851] session.wall_ms 141.933392
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f16_step2.wav
+  Completed at: 14:28:51
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f16_step2.wav
+
+[9/40] weight_type=bf16 | steps=2 -> audiocpp_omnivoice_clone_bf16_step2.wav
+  Started at: 14:28:51
+[TRACE ts=20260721-142851] runtime.model.family omnivoice
+[TRACE ts=20260721-142851] runtime.model.variant omnivoice
+[TRACE ts=20260721-142851] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142851] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142851] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142851] runtime.model.task_count 1
+[TRACE ts=20260721-142851] runtime.model.language_count 1
+[TRACE ts=20260721-142851] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142851] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142851] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142854] omnivoice.reference.encode_ms 1.694056
+[TIMING ts=20260721-142854] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142854] omnivoice.session.prompt_ms 2.850539
+[TIMING ts=20260721-142854] omnivoice.session.generate_ms 89.946025
+[TIMING ts=20260721-142854] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142854] omnivoice.generator.graph.rebuild_ms 2.956312
+[TIMING ts=20260721-142854] omnivoice.session.decode_ms 39.179467
+[TIMING ts=20260721-142854] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142854] omnivoice.decoder.graph.rebuild_ms 1.464211
+[TIMING ts=20260721-142854] omnivoice.session.postprocess_ms 7.83987
+[TIMING ts=20260721-142854] session.wall_ms 141.734135
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step2.wav
+  Completed at: 14:28:55
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step2.wav
+
+[10/40] weight_type=q8_0 | steps=2 -> audiocpp_omnivoice_clone_q8_0_step2.wav
+  Started at: 14:28:55
+[TRACE ts=20260721-142855] runtime.model.family omnivoice
+[TRACE ts=20260721-142855] runtime.model.variant omnivoice
+[TRACE ts=20260721-142855] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142855] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142855] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142855] runtime.model.task_count 1
+[TRACE ts=20260721-142855] runtime.model.language_count 1
+[TRACE ts=20260721-142855] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142855] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142855] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142858] omnivoice.reference.encode_ms 1.498574
+[TIMING ts=20260721-142858] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142858] omnivoice.session.prompt_ms 2.55713
+[TIMING ts=20260721-142858] omnivoice.session.generate_ms 82.0923
+[TIMING ts=20260721-142858] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142858] omnivoice.generator.graph.rebuild_ms 2.686
+[TIMING ts=20260721-142858] omnivoice.session.decode_ms 33.55823
+[TIMING ts=20260721-142858] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142858] omnivoice.decoder.graph.rebuild_ms 1.316473
+[TIMING ts=20260721-142858] omnivoice.session.postprocess_ms 6.816416
+[TIMING ts=20260721-142858] session.wall_ms 126.732631
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step2.wav
+  Completed at: 14:28:58
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step2.wav
+
+[11/40] weight_type=native | steps=4 -> audiocpp_omnivoice_clone_native_step4.wav
+  Started at: 14:28:58
+[TRACE ts=20260721-142858] runtime.model.family omnivoice
+[TRACE ts=20260721-142858] runtime.model.variant omnivoice
+[TRACE ts=20260721-142858] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142858] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142858] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142858] runtime.model.task_count 1
+[TRACE ts=20260721-142858] runtime.model.language_count 1
+[TRACE ts=20260721-142858] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142858] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142858] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142901] omnivoice.reference.encode_ms 1.721872
+[TIMING ts=20260721-142901] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142901] omnivoice.session.prompt_ms 2.868942
+[TIMING ts=20260721-142901] omnivoice.session.generate_ms 160.763256
+[TIMING ts=20260721-142901] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142901] omnivoice.generator.graph.rebuild_ms 3.059285
+[TIMING ts=20260721-142901] omnivoice.session.decode_ms 39.729959
+[TIMING ts=20260721-142901] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142901] omnivoice.decoder.graph.rebuild_ms 1.500661
+[TIMING ts=20260721-142901] omnivoice.session.postprocess_ms 7.787296
+[TIMING ts=20260721-142901] session.wall_ms 213.132139
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_native_step4.wav
+  Completed at: 14:29:01
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_native_step4.wav
+
+[12/40] weight_type=f32 | steps=4 -> audiocpp_omnivoice_clone_f32_step4.wav
+  Started at: 14:29:01
+[TRACE ts=20260721-142901] runtime.model.family omnivoice
+[TRACE ts=20260721-142901] runtime.model.variant omnivoice
+[TRACE ts=20260721-142901] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142901] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142901] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142901] runtime.model.task_count 1
+[TRACE ts=20260721-142901] runtime.model.language_count 1
+[TRACE ts=20260721-142901] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142901] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142901] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142904] omnivoice.reference.encode_ms 1.694
+[TIMING ts=20260721-142904] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142904] omnivoice.session.prompt_ms 2.865191
+[TIMING ts=20260721-142904] omnivoice.session.generate_ms 165.258889
+[TIMING ts=20260721-142904] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142904] omnivoice.generator.graph.rebuild_ms 5.612972
+[TIMING ts=20260721-142904] omnivoice.session.decode_ms 37.920381
+[TIMING ts=20260721-142904] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142904] omnivoice.decoder.graph.rebuild_ms 1.520522
+[TIMING ts=20260721-142904] omnivoice.session.postprocess_ms 7.891166
+[TIMING ts=20260721-142904] session.wall_ms 215.849885
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f32_step4.wav
+  Completed at: 14:29:04
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f32_step4.wav
+
+[13/40] weight_type=f16 | steps=4 -> audiocpp_omnivoice_clone_f16_step4.wav
+  Started at: 14:29:04
+[TRACE ts=20260721-142904] runtime.model.family omnivoice
+[TRACE ts=20260721-142904] runtime.model.variant omnivoice
+[TRACE ts=20260721-142904] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142904] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142904] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142904] runtime.model.task_count 1
+[TRACE ts=20260721-142904] runtime.model.language_count 1
+[TRACE ts=20260721-142904] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142904] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142904] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142907] omnivoice.reference.encode_ms 1.694346
+[TIMING ts=20260721-142907] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142907] omnivoice.session.prompt_ms 2.849781
+[TIMING ts=20260721-142907] omnivoice.session.generate_ms 171.14834
+[TIMING ts=20260721-142907] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142907] omnivoice.generator.graph.rebuild_ms 2.960771
+[TIMING ts=20260721-142907] omnivoice.session.decode_ms 50.261028
+[TIMING ts=20260721-142907] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142907] omnivoice.decoder.graph.rebuild_ms 10.457543
+[TIMING ts=20260721-142907] omnivoice.session.postprocess_ms 7.863852
+[TIMING ts=20260721-142907] session.wall_ms 234.038141
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f16_step4.wav
+  Completed at: 14:29:07
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f16_step4.wav
+
+[14/40] weight_type=bf16 | steps=4 -> audiocpp_omnivoice_clone_bf16_step4.wav
+  Started at: 14:29:07
+[TRACE ts=20260721-142908] runtime.model.family omnivoice
+[TRACE ts=20260721-142908] runtime.model.variant omnivoice
+[TRACE ts=20260721-142908] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142908] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142908] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142908] runtime.model.task_count 1
+[TRACE ts=20260721-142908] runtime.model.language_count 1
+[TRACE ts=20260721-142908] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142908] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142908] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142911] omnivoice.reference.encode_ms 1.717403
+[TIMING ts=20260721-142911] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142911] omnivoice.session.prompt_ms 2.886954
+[TIMING ts=20260721-142911] omnivoice.session.generate_ms 157.203562
+[TIMING ts=20260721-142911] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142911] omnivoice.generator.graph.rebuild_ms 3.104134
+[TIMING ts=20260721-142911] omnivoice.session.decode_ms 38.941559
+[TIMING ts=20260721-142911] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142911] omnivoice.decoder.graph.rebuild_ms 1.560763
+[TIMING ts=20260721-142911] omnivoice.session.postprocess_ms 7.888863
+[TIMING ts=20260721-142911] session.wall_ms 208.903249
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step4.wav
+  Completed at: 14:29:11
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step4.wav
+
+[15/40] weight_type=q8_0 | steps=4 -> audiocpp_omnivoice_clone_q8_0_step4.wav
+  Started at: 14:29:11
+[TRACE ts=20260721-142911] runtime.model.family omnivoice
+[TRACE ts=20260721-142911] runtime.model.variant omnivoice
+[TRACE ts=20260721-142911] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142911] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142911] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142911] runtime.model.task_count 1
+[TRACE ts=20260721-142911] runtime.model.language_count 1
+[TRACE ts=20260721-142911] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142911] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142911] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142915] omnivoice.reference.encode_ms 1.697501
+[TIMING ts=20260721-142915] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142915] omnivoice.session.prompt_ms 5.433963
+[TIMING ts=20260721-142915] omnivoice.session.generate_ms 172.93396
+[TIMING ts=20260721-142915] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142915] omnivoice.generator.graph.rebuild_ms 3.023235
+[TIMING ts=20260721-142915] omnivoice.session.decode_ms 55.923825
+[TIMING ts=20260721-142915] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142915] omnivoice.decoder.graph.rebuild_ms 1.781044
+[TIMING ts=20260721-142915] omnivoice.session.postprocess_ms 8.616068
+[TIMING ts=20260721-142915] session.wall_ms 244.857061
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step4.wav
+  Completed at: 14:29:15
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step4.wav
+
+[16/40] weight_type=native | steps=8 -> audiocpp_omnivoice_clone_native_step8.wav
+  Started at: 14:29:15
+[TRACE ts=20260721-142915] runtime.model.family omnivoice
+[TRACE ts=20260721-142915] runtime.model.variant omnivoice
+[TRACE ts=20260721-142915] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142915] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142915] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142915] runtime.model.task_count 1
+[TRACE ts=20260721-142915] runtime.model.language_count 1
+[TRACE ts=20260721-142915] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142915] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142915] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142918] omnivoice.reference.encode_ms 1.694458
+[TIMING ts=20260721-142918] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142918] omnivoice.session.prompt_ms 2.911831
+[TIMING ts=20260721-142918] omnivoice.session.generate_ms 289.903005
+[TIMING ts=20260721-142918] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142918] omnivoice.generator.graph.rebuild_ms 3.128839
+[TIMING ts=20260721-142918] omnivoice.session.decode_ms 41.247749
+[TIMING ts=20260721-142918] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142918] omnivoice.decoder.graph.rebuild_ms 1.604156
+[TIMING ts=20260721-142918] omnivoice.session.postprocess_ms 7.879928
+[TIMING ts=20260721-142918] session.wall_ms 343.915966
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_native_step8.wav
+  Completed at: 14:29:18
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_native_step8.wav
+
+[17/40] weight_type=f32 | steps=8 -> audiocpp_omnivoice_clone_f32_step8.wav
+  Started at: 14:29:18
+[TRACE ts=20260721-142919] runtime.model.family omnivoice
+[TRACE ts=20260721-142919] runtime.model.variant omnivoice
+[TRACE ts=20260721-142919] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142919] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142919] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142919] runtime.model.task_count 1
+[TRACE ts=20260721-142919] runtime.model.language_count 1
+[TRACE ts=20260721-142919] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142919] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142919] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142922] omnivoice.reference.encode_ms 1.702374
+[TIMING ts=20260721-142922] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142922] omnivoice.session.prompt_ms 2.833007
+[TIMING ts=20260721-142922] omnivoice.session.generate_ms 306.203721
+[TIMING ts=20260721-142922] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142922] omnivoice.generator.graph.rebuild_ms 3.009509
+[TIMING ts=20260721-142922] omnivoice.session.decode_ms 44.957927
+[TIMING ts=20260721-142922] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142922] omnivoice.decoder.graph.rebuild_ms 6.405936
+[TIMING ts=20260721-142922] omnivoice.session.postprocess_ms 7.802991
+[TIMING ts=20260721-142922] session.wall_ms 363.723161
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f32_step8.wav
+  Completed at: 14:29:22
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f32_step8.wav
+
+[18/40] weight_type=f16 | steps=8 -> audiocpp_omnivoice_clone_f16_step8.wav
+  Started at: 14:29:22
+[TRACE ts=20260721-142922] runtime.model.family omnivoice
+[TRACE ts=20260721-142922] runtime.model.variant omnivoice
+[TRACE ts=20260721-142922] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142922] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142922] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142922] runtime.model.task_count 1
+[TRACE ts=20260721-142922] runtime.model.language_count 1
+[TRACE ts=20260721-142922] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142922] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142922] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142925] omnivoice.reference.encode_ms 1.694194
+[TIMING ts=20260721-142925] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142925] omnivoice.session.prompt_ms 2.841701
+[TIMING ts=20260721-142925] omnivoice.session.generate_ms 307.397034
+[TIMING ts=20260721-142925] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142925] omnivoice.generator.graph.rebuild_ms 2.958258
+[TIMING ts=20260721-142925] omnivoice.session.decode_ms 38.746132
+[TIMING ts=20260721-142925] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142925] omnivoice.decoder.graph.rebuild_ms 1.507375
+[TIMING ts=20260721-142925] omnivoice.session.postprocess_ms 7.776936
+[TIMING ts=20260721-142925] session.wall_ms 358.676923
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f16_step8.wav
+  Completed at: 14:29:26
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f16_step8.wav
+
+[19/40] weight_type=bf16 | steps=8 -> audiocpp_omnivoice_clone_bf16_step8.wav
+  Started at: 14:29:26
+[TRACE ts=20260721-142926] runtime.model.family omnivoice
+[TRACE ts=20260721-142926] runtime.model.variant omnivoice
+[TRACE ts=20260721-142926] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142926] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142926] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142926] runtime.model.task_count 1
+[TRACE ts=20260721-142926] runtime.model.language_count 1
+[TRACE ts=20260721-142926] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142926] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142926] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142929] omnivoice.reference.encode_ms 1.718338
+[TIMING ts=20260721-142929] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142929] omnivoice.session.prompt_ms 2.839535
+[TIMING ts=20260721-142929] omnivoice.session.generate_ms 322.015696
+[TIMING ts=20260721-142929] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142929] omnivoice.generator.graph.rebuild_ms 2.964611
+[TIMING ts=20260721-142929] omnivoice.session.decode_ms 39.885483
+[TIMING ts=20260721-142929] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142929] omnivoice.decoder.graph.rebuild_ms 1.50335
+[TIMING ts=20260721-142929] omnivoice.session.postprocess_ms 7.823251
+[TIMING ts=20260721-142929] session.wall_ms 374.508399
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step8.wav
+  Completed at: 14:29:29
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step8.wav
+
+[20/40] weight_type=q8_0 | steps=8 -> audiocpp_omnivoice_clone_q8_0_step8.wav
+  Started at: 14:29:29
+[TRACE ts=20260721-142929] runtime.model.family omnivoice
+[TRACE ts=20260721-142929] runtime.model.variant omnivoice
+[TRACE ts=20260721-142929] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142929] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142929] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142929] runtime.model.task_count 1
+[TRACE ts=20260721-142929] runtime.model.language_count 1
+[TRACE ts=20260721-142929] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142929] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142929] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142933] omnivoice.reference.encode_ms 1.69417
+[TIMING ts=20260721-142933] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142933] omnivoice.session.prompt_ms 4.994782
+[TIMING ts=20260721-142933] omnivoice.session.generate_ms 319.917721
+[TIMING ts=20260721-142933] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142933] omnivoice.generator.graph.rebuild_ms 3.049731
+[TIMING ts=20260721-142933] omnivoice.session.decode_ms 41.643521
+[TIMING ts=20260721-142933] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142933] omnivoice.decoder.graph.rebuild_ms 1.574134
+[TIMING ts=20260721-142933] omnivoice.session.postprocess_ms 7.947034
+[TIMING ts=20260721-142933] session.wall_ms 376.482576
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step8.wav
+  Completed at: 14:29:33
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step8.wav
+
+[21/40] weight_type=native | steps=16 -> audiocpp_omnivoice_clone_native_step16.wav
+  Started at: 14:29:33
+[TRACE ts=20260721-142933] runtime.model.family omnivoice
+[TRACE ts=20260721-142933] runtime.model.variant omnivoice
+[TRACE ts=20260721-142933] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142933] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142933] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142933] runtime.model.task_count 1
+[TRACE ts=20260721-142933] runtime.model.language_count 1
+[TRACE ts=20260721-142933] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142933] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142933] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142937] omnivoice.reference.encode_ms 1.694171
+[TIMING ts=20260721-142937] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142937] omnivoice.session.prompt_ms 2.844048
+[TIMING ts=20260721-142937] omnivoice.session.generate_ms 613.654192
+[TIMING ts=20260721-142937] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142937] omnivoice.generator.graph.rebuild_ms 3.884582
+[TIMING ts=20260721-142937] omnivoice.session.decode_ms 38.0936
+[TIMING ts=20260721-142937] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142937] omnivoice.decoder.graph.rebuild_ms 1.481612
+[TIMING ts=20260721-142937] omnivoice.session.postprocess_ms 7.823566
+[TIMING ts=20260721-142937] session.wall_ms 664.342832
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_native_step16.wav
+  Completed at: 14:29:37
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_native_step16.wav
+
+[22/40] weight_type=f32 | steps=16 -> audiocpp_omnivoice_clone_f32_step16.wav
+  Started at: 14:29:37
+[TRACE ts=20260721-142937] runtime.model.family omnivoice
+[TRACE ts=20260721-142937] runtime.model.variant omnivoice
+[TRACE ts=20260721-142937] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142937] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142937] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142937] runtime.model.task_count 1
+[TRACE ts=20260721-142937] runtime.model.language_count 1
+[TRACE ts=20260721-142937] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142937] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142937] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142941] omnivoice.reference.encode_ms 1.831895
+[TIMING ts=20260721-142941] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142941] omnivoice.session.prompt_ms 2.826243
+[TIMING ts=20260721-142941] omnivoice.session.generate_ms 593.026547
+[TIMING ts=20260721-142941] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142941] omnivoice.generator.graph.rebuild_ms 2.96962
+[TIMING ts=20260721-142941] omnivoice.session.decode_ms 41.104308
+[TIMING ts=20260721-142941] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142941] omnivoice.decoder.graph.rebuild_ms 1.483396
+[TIMING ts=20260721-142941] omnivoice.session.postprocess_ms 7.121953
+[TIMING ts=20260721-142941] session.wall_ms 646.143865
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f32_step16.wav
+  Completed at: 14:29:41
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f32_step16.wav
+
+[23/40] weight_type=f16 | steps=16 -> audiocpp_omnivoice_clone_f16_step16.wav
+  Started at: 14:29:41
+[TRACE ts=20260721-142941] runtime.model.family omnivoice
+[TRACE ts=20260721-142941] runtime.model.variant omnivoice
+[TRACE ts=20260721-142941] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142941] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142941] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142941] runtime.model.task_count 1
+[TRACE ts=20260721-142941] runtime.model.language_count 1
+[TRACE ts=20260721-142941] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142941] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142941] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142944] omnivoice.reference.encode_ms 1.724084
+[TIMING ts=20260721-142944] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142944] omnivoice.session.prompt_ms 2.838533
+[TIMING ts=20260721-142944] omnivoice.session.generate_ms 594.23336
+[TIMING ts=20260721-142944] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142944] omnivoice.generator.graph.rebuild_ms 5.966348
+[TIMING ts=20260721-142944] omnivoice.session.decode_ms 37.478921
+[TIMING ts=20260721-142944] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142944] omnivoice.decoder.graph.rebuild_ms 1.33823
+[TIMING ts=20260721-142944] omnivoice.session.postprocess_ms 6.707968
+[TIMING ts=20260721-142944] session.wall_ms 643.216766
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f16_step16.wav
+  Completed at: 14:29:45
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f16_step16.wav
+
+[24/40] weight_type=bf16 | steps=16 -> audiocpp_omnivoice_clone_bf16_step16.wav
+  Started at: 14:29:45
+[TRACE ts=20260721-142945] runtime.model.family omnivoice
+[TRACE ts=20260721-142945] runtime.model.variant omnivoice
+[TRACE ts=20260721-142945] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142945] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142945] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142945] runtime.model.task_count 1
+[TRACE ts=20260721-142945] runtime.model.language_count 1
+[TRACE ts=20260721-142945] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142945] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142945] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142948] omnivoice.reference.encode_ms 1.735621
+[TIMING ts=20260721-142948] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142948] omnivoice.session.prompt_ms 2.851116
+[TIMING ts=20260721-142948] omnivoice.session.generate_ms 597.51399
+[TIMING ts=20260721-142948] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142948] omnivoice.generator.graph.rebuild_ms 2.962238
+[TIMING ts=20260721-142948] omnivoice.session.decode_ms 39.760899
+[TIMING ts=20260721-142948] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142948] omnivoice.decoder.graph.rebuild_ms 1.524509
+[TIMING ts=20260721-142948] omnivoice.session.postprocess_ms 7.797067
+[TIMING ts=20260721-142948] session.wall_ms 649.879275
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step16.wav
+  Completed at: 14:29:48
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step16.wav
+
+[25/40] weight_type=q8_0 | steps=16 -> audiocpp_omnivoice_clone_q8_0_step16.wav
+  Started at: 14:29:48
+[TRACE ts=20260721-142948] runtime.model.family omnivoice
+[TRACE ts=20260721-142948] runtime.model.variant omnivoice
+[TRACE ts=20260721-142948] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142948] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142948] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142948] runtime.model.task_count 1
+[TRACE ts=20260721-142948] runtime.model.language_count 1
+[TRACE ts=20260721-142948] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142948] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142948] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142952] omnivoice.reference.encode_ms 1.704899
+[TIMING ts=20260721-142952] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142952] omnivoice.session.prompt_ms 2.838483
+[TIMING ts=20260721-142952] omnivoice.session.generate_ms 611.132486
+[TIMING ts=20260721-142952] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142952] omnivoice.generator.graph.rebuild_ms 2.95169
+[TIMING ts=20260721-142952] omnivoice.session.decode_ms 39.505924
+[TIMING ts=20260721-142952] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142952] omnivoice.decoder.graph.rebuild_ms 1.578823
+[TIMING ts=20260721-142952] omnivoice.session.postprocess_ms 7.810553
+[TIMING ts=20260721-142952] session.wall_ms 663.210614
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step16.wav
+  Completed at: 14:29:52
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step16.wav
+
+[26/40] weight_type=native | steps=32 -> audiocpp_omnivoice_clone_native_step32.wav
+  Started at: 14:29:52
+[TRACE ts=20260721-142952] runtime.model.family omnivoice
+[TRACE ts=20260721-142952] runtime.model.variant omnivoice
+[TRACE ts=20260721-142952] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142952] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142952] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142952] runtime.model.task_count 1
+[TRACE ts=20260721-142952] runtime.model.language_count 1
+[TRACE ts=20260721-142952] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142952] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142952] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-142956] omnivoice.reference.encode_ms 1.409684
+[TIMING ts=20260721-142956] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-142956] omnivoice.session.prompt_ms 2.544143
+[TIMING ts=20260721-142956] omnivoice.session.generate_ms 1164.604658
+[TIMING ts=20260721-142956] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-142956] omnivoice.generator.graph.rebuild_ms 2.591149
+[TIMING ts=20260721-142956] omnivoice.session.decode_ms 46.627429
+[TIMING ts=20260721-142956] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-142956] omnivoice.decoder.graph.rebuild_ms 1.592855
+[TIMING ts=20260721-142956] omnivoice.session.postprocess_ms 8.494677
+[TIMING ts=20260721-142956] session.wall_ms 1223.912615
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_native_step32.wav
+  Completed at: 14:29:56
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_native_step32.wav
+
+[27/40] weight_type=f32 | steps=32 -> audiocpp_omnivoice_clone_f32_step32.wav
+  Started at: 14:29:56
+[TRACE ts=20260721-142956] runtime.model.family omnivoice
+[TRACE ts=20260721-142956] runtime.model.variant omnivoice
+[TRACE ts=20260721-142956] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-142956] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-142956] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-142956] runtime.model.task_count 1
+[TRACE ts=20260721-142956] runtime.model.language_count 1
+[TRACE ts=20260721-142956] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-142956] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-142956] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143001] omnivoice.reference.encode_ms 1.705802
+[TIMING ts=20260721-143001] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143001] omnivoice.session.prompt_ms 2.881014
+[TIMING ts=20260721-143001] omnivoice.session.generate_ms 1143.013668
+[TIMING ts=20260721-143001] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143001] omnivoice.generator.graph.rebuild_ms 2.9637
+[TIMING ts=20260721-143001] omnivoice.session.decode_ms 46.329571
+[TIMING ts=20260721-143001] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143001] omnivoice.decoder.graph.rebuild_ms 1.602505
+[TIMING ts=20260721-143001] omnivoice.session.postprocess_ms 8.511032
+[TIMING ts=20260721-143001] session.wall_ms 1202.667461
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f32_step32.wav
+  Completed at: 14:30:01
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f32_step32.wav
+
+[28/40] weight_type=f16 | steps=32 -> audiocpp_omnivoice_clone_f16_step32.wav
+  Started at: 14:30:01
+[TRACE ts=20260721-143001] runtime.model.family omnivoice
+[TRACE ts=20260721-143001] runtime.model.variant omnivoice
+[TRACE ts=20260721-143001] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143001] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143001] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143001] runtime.model.task_count 1
+[TRACE ts=20260721-143001] runtime.model.language_count 1
+[TRACE ts=20260721-143001] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143001] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143001] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143005] omnivoice.reference.encode_ms 1.298923
+[TIMING ts=20260721-143005] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143005] omnivoice.session.prompt_ms 2.351826
+[TIMING ts=20260721-143005] omnivoice.session.generate_ms 1164.794206
+[TIMING ts=20260721-143005] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143005] omnivoice.generator.graph.rebuild_ms 3.069394
+[TIMING ts=20260721-143005] omnivoice.session.decode_ms 41.929453
+[TIMING ts=20260721-143005] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143005] omnivoice.decoder.graph.rebuild_ms 1.420291
+[TIMING ts=20260721-143005] omnivoice.session.postprocess_ms 7.446928
+[TIMING ts=20260721-143005] session.wall_ms 1218.026454
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f16_step32.wav
+  Completed at: 14:30:05
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f16_step32.wav
+
+[29/40] weight_type=bf16 | steps=32 -> audiocpp_omnivoice_clone_bf16_step32.wav
+  Started at: 14:30:05
+[TRACE ts=20260721-143005] runtime.model.family omnivoice
+[TRACE ts=20260721-143005] runtime.model.variant omnivoice
+[TRACE ts=20260721-143005] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143005] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143005] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143005] runtime.model.task_count 1
+[TRACE ts=20260721-143005] runtime.model.language_count 1
+[TRACE ts=20260721-143005] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143005] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143005] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143009] omnivoice.reference.encode_ms 1.538012
+[TIMING ts=20260721-143009] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143009] omnivoice.session.prompt_ms 4.454657
+[TIMING ts=20260721-143009] omnivoice.session.generate_ms 1081.520086
+[TIMING ts=20260721-143009] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143009] omnivoice.generator.graph.rebuild_ms 2.57312
+[TIMING ts=20260721-143009] omnivoice.session.decode_ms 48.422981
+[TIMING ts=20260721-143009] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143009] omnivoice.decoder.graph.rebuild_ms 1.686332
+[TIMING ts=20260721-143009] omnivoice.session.postprocess_ms 8.571399
+[TIMING ts=20260721-143009] session.wall_ms 1144.76112
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step32.wav
+  Completed at: 14:30:10
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step32.wav
+
+[30/40] weight_type=q8_0 | steps=32 -> audiocpp_omnivoice_clone_q8_0_step32.wav
+  Started at: 14:30:10
+[TRACE ts=20260721-143010] runtime.model.family omnivoice
+[TRACE ts=20260721-143010] runtime.model.variant omnivoice
+[TRACE ts=20260721-143010] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143010] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143010] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143010] runtime.model.task_count 1
+[TRACE ts=20260721-143010] runtime.model.language_count 1
+[TRACE ts=20260721-143010] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143010] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143010] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143014] omnivoice.reference.encode_ms 1.720447
+[TIMING ts=20260721-143014] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143014] omnivoice.session.prompt_ms 2.867036
+[TIMING ts=20260721-143014] omnivoice.session.generate_ms 1138.229422
+[TIMING ts=20260721-143014] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143014] omnivoice.generator.graph.rebuild_ms 3.067968
+[TIMING ts=20260721-143014] omnivoice.session.decode_ms 40.087614
+[TIMING ts=20260721-143014] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143014] omnivoice.decoder.graph.rebuild_ms 1.416989
+[TIMING ts=20260721-143014] omnivoice.session.postprocess_ms 7.033779
+[TIMING ts=20260721-143014] session.wall_ms 1190.157645
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step32.wav
+  Completed at: 14:30:14
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step32.wav
+
+[31/40] weight_type=native | steps=64 -> audiocpp_omnivoice_clone_native_step64.wav
+  Started at: 14:30:14
+[TRACE ts=20260721-143014] runtime.model.family omnivoice
+[TRACE ts=20260721-143014] runtime.model.variant omnivoice
+[TRACE ts=20260721-143014] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143014] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143014] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143014] runtime.model.task_count 1
+[TRACE ts=20260721-143014] runtime.model.language_count 1
+[TRACE ts=20260721-143014] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143014] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143014] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143019] omnivoice.reference.encode_ms 1.989136
+[TIMING ts=20260721-143019] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143019] omnivoice.session.prompt_ms 3.19506
+[TIMING ts=20260721-143019] omnivoice.session.generate_ms 2306.183959
+[TIMING ts=20260721-143019] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143019] omnivoice.generator.graph.rebuild_ms 3.300164
+[TIMING ts=20260721-143019] omnivoice.session.decode_ms 46.156117
+[TIMING ts=20260721-143019] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143019] omnivoice.decoder.graph.rebuild_ms 1.610065
+[TIMING ts=20260721-143019] omnivoice.session.postprocess_ms 8.692114
+[TIMING ts=20260721-143019] session.wall_ms 2366.446775
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_native_step64.wav
+  Completed at: 14:30:20
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_native_step64.wav
+
+[32/40] weight_type=f32 | steps=64 -> audiocpp_omnivoice_clone_f32_step64.wav
+  Started at: 14:30:20
+[TRACE ts=20260721-143020] runtime.model.family omnivoice
+[TRACE ts=20260721-143020] runtime.model.variant omnivoice
+[TRACE ts=20260721-143020] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143020] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143020] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143020] runtime.model.task_count 1
+[TRACE ts=20260721-143020] runtime.model.language_count 1
+[TRACE ts=20260721-143020] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143020] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143020] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143025] omnivoice.reference.encode_ms 1.694079
+[TIMING ts=20260721-143025] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143025] omnivoice.session.prompt_ms 2.836568
+[TIMING ts=20260721-143025] omnivoice.session.generate_ms 2280.260496
+[TIMING ts=20260721-143025] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143025] omnivoice.generator.graph.rebuild_ms 3.88382
+[TIMING ts=20260721-143025] omnivoice.session.decode_ms 40.525402
+[TIMING ts=20260721-143025] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143025] omnivoice.decoder.graph.rebuild_ms 1.348204
+[TIMING ts=20260721-143025] omnivoice.session.postprocess_ms 7.173105
+[TIMING ts=20260721-143025] session.wall_ms 2332.710242
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f32_step64.wav
+  Completed at: 14:30:25
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f32_step64.wav
+
+[33/40] weight_type=f16 | steps=64 -> audiocpp_omnivoice_clone_f16_step64.wav
+  Started at: 14:30:25
+[TRACE ts=20260721-143025] runtime.model.family omnivoice
+[TRACE ts=20260721-143025] runtime.model.variant omnivoice
+[TRACE ts=20260721-143025] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143025] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143025] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143025] runtime.model.task_count 1
+[TRACE ts=20260721-143025] runtime.model.language_count 1
+[TRACE ts=20260721-143025] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143025] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143025] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143030] omnivoice.reference.encode_ms 1.694461
+[TIMING ts=20260721-143030] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143030] omnivoice.session.prompt_ms 2.886821
+[TIMING ts=20260721-143030] omnivoice.session.generate_ms 2234.913692
+[TIMING ts=20260721-143030] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143030] omnivoice.generator.graph.rebuild_ms 2.958486
+[TIMING ts=20260721-143030] omnivoice.session.decode_ms 46.21128
+[TIMING ts=20260721-143030] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143030] omnivoice.decoder.graph.rebuild_ms 4.083108
+[TIMING ts=20260721-143030] omnivoice.session.postprocess_ms 7.735806
+[TIMING ts=20260721-143030] session.wall_ms 2293.673758
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f16_step64.wav
+  Completed at: 14:30:30
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f16_step64.wav
+
+[34/40] weight_type=bf16 | steps=64 -> audiocpp_omnivoice_clone_bf16_step64.wav
+  Started at: 14:30:30
+[TRACE ts=20260721-143030] runtime.model.family omnivoice
+[TRACE ts=20260721-143030] runtime.model.variant omnivoice
+[TRACE ts=20260721-143030] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143030] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143030] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143030] runtime.model.task_count 1
+[TRACE ts=20260721-143030] runtime.model.language_count 1
+[TRACE ts=20260721-143030] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143030] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143030] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143036] omnivoice.reference.encode_ms 1.737387
+[TIMING ts=20260721-143036] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143036] omnivoice.session.prompt_ms 2.838142
+[TIMING ts=20260721-143036] omnivoice.session.generate_ms 2182.414337
+[TIMING ts=20260721-143036] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143036] omnivoice.generator.graph.rebuild_ms 2.892672
+[TIMING ts=20260721-143036] omnivoice.session.decode_ms 47.270881
+[TIMING ts=20260721-143036] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143036] omnivoice.decoder.graph.rebuild_ms 2.19272
+[TIMING ts=20260721-143036] omnivoice.session.postprocess_ms 8.497534
+[TIMING ts=20260721-143036] session.wall_ms 2242.977745
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step64.wav
+  Completed at: 14:30:36
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step64.wav
+
+[35/40] weight_type=q8_0 | steps=64 -> audiocpp_omnivoice_clone_q8_0_step64.wav
+  Started at: 14:30:36
+[TRACE ts=20260721-143036] runtime.model.family omnivoice
+[TRACE ts=20260721-143036] runtime.model.variant omnivoice
+[TRACE ts=20260721-143036] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143036] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143036] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143036] runtime.model.task_count 1
+[TRACE ts=20260721-143036] runtime.model.language_count 1
+[TRACE ts=20260721-143036] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143036] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143036] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143041] omnivoice.reference.encode_ms 1.703756
+[TIMING ts=20260721-143041] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143041] omnivoice.session.prompt_ms 3.303937
+[TIMING ts=20260721-143041] omnivoice.session.generate_ms 2277.738342
+[TIMING ts=20260721-143041] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143041] omnivoice.generator.graph.rebuild_ms 3.037853
+[TIMING ts=20260721-143041] omnivoice.session.decode_ms 41.02922
+[TIMING ts=20260721-143041] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143041] omnivoice.decoder.graph.rebuild_ms 1.449389
+[TIMING ts=20260721-143041] omnivoice.session.postprocess_ms 7.311405
+[TIMING ts=20260721-143041] session.wall_ms 2331.322924
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step64.wav
+  Completed at: 14:30:41
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step64.wav
+
+[36/40] weight_type=native | steps=128 -> audiocpp_omnivoice_clone_native_step128.wav
+  Started at: 14:30:41
+[TRACE ts=20260721-143041] runtime.model.family omnivoice
+[TRACE ts=20260721-143041] runtime.model.variant omnivoice
+[TRACE ts=20260721-143041] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143041] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143041] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143041] runtime.model.task_count 1
+[TRACE ts=20260721-143041] runtime.model.language_count 1
+[TRACE ts=20260721-143041] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143041] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143041] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143049] omnivoice.reference.encode_ms 1.694183
+[TIMING ts=20260721-143049] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143049] omnivoice.session.prompt_ms 2.814618
+[TIMING ts=20260721-143049] omnivoice.session.generate_ms 4546.793135
+[TIMING ts=20260721-143049] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143049] omnivoice.generator.graph.rebuild_ms 2.938548
+[TIMING ts=20260721-143049] omnivoice.session.decode_ms 40.077163
+[TIMING ts=20260721-143049] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143049] omnivoice.decoder.graph.rebuild_ms 1.554753
+[TIMING ts=20260721-143049] omnivoice.session.postprocess_ms 6.996547
+[TIMING ts=20260721-143049] session.wall_ms 4598.624495
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_native_step128.wav
+  Completed at: 14:30:49
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_native_step128.wav
+
+[37/40] weight_type=f32 | steps=128 -> audiocpp_omnivoice_clone_f32_step128.wav
+  Started at: 14:30:49
+[TRACE ts=20260721-143049] runtime.model.family omnivoice
+[TRACE ts=20260721-143049] runtime.model.variant omnivoice
+[TRACE ts=20260721-143049] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143049] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143049] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143049] runtime.model.task_count 1
+[TRACE ts=20260721-143049] runtime.model.language_count 1
+[TRACE ts=20260721-143049] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143049] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143049] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143057] omnivoice.reference.encode_ms 1.694183
+[TIMING ts=20260721-143057] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143057] omnivoice.session.prompt_ms 2.874748
+[TIMING ts=20260721-143057] omnivoice.session.generate_ms 4503.506731
+[TIMING ts=20260721-143057] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143057] omnivoice.generator.graph.rebuild_ms 4.160344
+[TIMING ts=20260721-143057] omnivoice.session.decode_ms 45.050832
+[TIMING ts=20260721-143057] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143057] omnivoice.decoder.graph.rebuild_ms 1.333647
+[TIMING ts=20260721-143057] omnivoice.session.postprocess_ms 7.544847
+[TIMING ts=20260721-143057] session.wall_ms 4560.92394
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f32_step128.wav
+  Completed at: 14:30:57
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f32_step128.wav
+
+[38/40] weight_type=f16 | steps=128 -> audiocpp_omnivoice_clone_f16_step128.wav
+  Started at: 14:30:57
+[TRACE ts=20260721-143057] runtime.model.family omnivoice
+[TRACE ts=20260721-143057] runtime.model.variant omnivoice
+[TRACE ts=20260721-143057] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143057] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143057] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143057] runtime.model.task_count 1
+[TRACE ts=20260721-143057] runtime.model.language_count 1
+[TRACE ts=20260721-143057] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143057] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143057] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143104] omnivoice.reference.encode_ms 1.718643
+[TIMING ts=20260721-143104] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143104] omnivoice.session.prompt_ms 2.833796
+[TIMING ts=20260721-143104] omnivoice.session.generate_ms 4450.086982
+[TIMING ts=20260721-143104] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143104] omnivoice.generator.graph.rebuild_ms 4.099151
+[TIMING ts=20260721-143104] omnivoice.session.decode_ms 45.368329
+[TIMING ts=20260721-143104] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143104] omnivoice.decoder.graph.rebuild_ms 1.39573
+[TIMING ts=20260721-143104] omnivoice.session.postprocess_ms 7.522635
+[TIMING ts=20260721-143104] session.wall_ms 4507.756707
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_f16_step128.wav
+  Completed at: 14:31:05
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_f16_step128.wav
+
+[39/40] weight_type=bf16 | steps=128 -> audiocpp_omnivoice_clone_bf16_step128.wav
+  Started at: 14:31:05
+[TRACE ts=20260721-143105] runtime.model.family omnivoice
+[TRACE ts=20260721-143105] runtime.model.variant omnivoice
+[TRACE ts=20260721-143105] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143105] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143105] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143105] runtime.model.task_count 1
+[TRACE ts=20260721-143105] runtime.model.language_count 1
+[TRACE ts=20260721-143105] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143105] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143105] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143112] omnivoice.reference.encode_ms 1.732563
+[TIMING ts=20260721-143112] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143112] omnivoice.session.prompt_ms 2.827555
+[TIMING ts=20260721-143112] omnivoice.session.generate_ms 4390.707815
+[TIMING ts=20260721-143112] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143112] omnivoice.generator.graph.rebuild_ms 2.907006
+[TIMING ts=20260721-143112] omnivoice.session.decode_ms 44.969438
+[TIMING ts=20260721-143112] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143112] omnivoice.decoder.graph.rebuild_ms 1.422257
+[TIMING ts=20260721-143112] omnivoice.session.postprocess_ms 8.480355
+[TIMING ts=20260721-143112] session.wall_ms 4448.934993
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step128.wav
+  Completed at: 14:31:12
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_bf16_step128.wav
+
+[40/40] weight_type=q8_0 | steps=128 -> audiocpp_omnivoice_clone_q8_0_step128.wav
+  Started at: 14:31:12
+[TRACE ts=20260721-143112] runtime.model.family omnivoice
+[TRACE ts=20260721-143112] runtime.model.variant omnivoice
+[TRACE ts=20260721-143112] runtime.model.root /home/ipt/kawshik/tts-testing/audio.cpp/models/OmniVoice
+[TRACE ts=20260721-143112] runtime.model.discovered_config_count 6
+[TRACE ts=20260721-143112] runtime.model.discovered_weight_count 2
+[TRACE ts=20260721-143112] runtime.model.task_count 1
+[TRACE ts=20260721-143112] runtime.model.language_count 1
+[TRACE ts=20260721-143112] runtime.model.supports_speaker_reference 1
+[TRACE ts=20260721-143112] runtime.model.supports_style_condition 1
+[TRACE ts=20260721-143112] runtime.model.supports_timestamps 0
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24111 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24111 MiB
+ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+[TIMING ts=20260721-143119] omnivoice.reference.encode_ms 1.712812
+[TIMING ts=20260721-143119] omnivoice.encoder.graph.rebuilt 1
+[TIMING ts=20260721-143119] omnivoice.session.prompt_ms 2.901375
+[TIMING ts=20260721-143119] omnivoice.session.generate_ms 4581.910271
+[TIMING ts=20260721-143119] omnivoice.generator.graph.rebuilt 1
+[TIMING ts=20260721-143119] omnivoice.generator.graph.rebuild_ms 2.934115
+[TIMING ts=20260721-143119] omnivoice.session.decode_ms 42.591166
+[TIMING ts=20260721-143119] omnivoice.decoder.graph.rebuilt 1
+[TIMING ts=20260721-143119] omnivoice.decoder.graph.rebuild_ms 1.60617
+[TIMING ts=20260721-143119] omnivoice.session.postprocess_ms 8.305786
+[TIMING ts=20260721-143119] session.wall_ms 4637.642495
+family=omnivoice
+task=tts
+mode=offline
+audio_out=./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step128.wav
+  Completed at: 14:31:20
+  Output: ./outputs/single_infer/audiocpp_omnivoice_clone_q8_0_step128.wav
+
+==========================================
+All 40 combinations completed!
+Finished: Tue Jul 21 14:31:20 +06 2026
+Outputs in: ./outputs/single_infer
+Global Log: benchmark_audiocpp_omnivoice_clone.log
+==========================================
