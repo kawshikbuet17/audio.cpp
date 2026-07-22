@@ -4,11 +4,21 @@ set -e
 DEVICE="0"
 LANG="Bengali"
 SEED="42"
-STEPS_LIST=("1" "2" "4" "8" "16" "32" "64" "128")
+
+# Enable or disable warmup runs
+WARMUP=true
+
+# Number of warmup runs when WARMUP=true
+WARMUP_QUANTITY=10
+
+STEPS_LIST=("8" "12" "16" "20" "24" "28" "32" "36" "40" "44" "48" "52" "56" "60" "64")
 WEIGHT_TYPES=("native" "f32" "f16" "bf16" "q8_0")
+AUDIO_TOKENIZER_WEIGHT_TYPES=("native" "f32" "f16" "bf16" "q8_0")
+
 REF_WAV="./ref_audios/ref_audio_02.wav"
 REF_TEXT="আমি যে পরিমাণ তহবিল স্থানান্তর করতে পারি, তার কি সর্বোচ্চ সীমা আছে?"
 TEXT="আমি একটা টিটিএস মডেল, নাম OmniVoice। কিভাবে আপনাকে সাহায্য করতে পারি?"
+
 OUT_DIR="./outputs/single_infer"
 LOG_FILE="benchmark_audiocpp_omnivoice_clone.log"
 
@@ -22,19 +32,30 @@ echo "=========================================="
 echo "Started: $(date)"
 echo "Running all audio.cpp OmniVoice combinations"
 echo "Device: cuda:$DEVICE | Language: $LANG | Seed: $SEED"
+echo "Warmup: $WARMUP | Warmup Quantity: $WARMUP_QUANTITY"
 echo "Global Log: $LOG_FILE"
 echo "=========================================="
 echo ""
 
-TOTAL=$(( ${#STEPS_LIST[@]} * ${#WEIGHT_TYPES[@]} ))
-COUNT=0
+# Basic warmup using the first configured combination
+if [[ "$WARMUP" == "true" ]]; then
+    WARMUP_STEPS="${STEPS_LIST[0]}"
+    WARMUP_WEIGHT_TYPE="${WEIGHT_TYPES[0]}"
+    WARMUP_AUDIO_TOKENIZER_WEIGHT_TYPE="${AUDIO_TOKENIZER_WEIGHT_TYPES[0]}"
 
-for steps in "${STEPS_LIST[@]}"; do
-    for wt in "${WEIGHT_TYPES[@]}"; do
-        COUNT=$((COUNT + 1))
-        OUT_NAME="audiocpp_omnivoice_clone_${wt}_step${steps}.wav"
+    echo "=========================================="
+    echo "Starting $WARMUP_QUANTITY warmup run(s)"
+    echo "weight_type=$WARMUP_WEIGHT_TYPE"
+    echo "audio_tokenizer_weight_type=$WARMUP_AUDIO_TOKENIZER_WEIGHT_TYPE"
+    echo "steps=$WARMUP_STEPS"
+    echo "Started at: $(date)"
+    echo "=========================================="
+    echo ""
 
-        echo "[$COUNT/$TOTAL] weight_type=$wt | steps=$steps -> $OUT_NAME"
+    for ((warmup_index = 1; warmup_index <= WARMUP_QUANTITY; warmup_index++)); do
+        WARMUP_OUT="${OUT_DIR}/warmup_${warmup_index}.wav"
+
+        echo "[Warmup $warmup_index/$WARMUP_QUANTITY]"
         echo "  Started at: $(date +%H:%M:%S)"
 
         CUDA_VISIBLE_DEVICES=$DEVICE build/bin/audiocpp_cli \
@@ -48,14 +69,60 @@ for steps in "${STEPS_LIST[@]}"; do
             --reference-text "$REF_TEXT" \
             --language "$LANG" \
             --seed "$SEED" \
-            --num-inference-steps "$steps" \
-            --load-option weight_type="$wt" \
-            --out "${OUT_DIR}/${OUT_NAME}" \
+            --num-inference-steps "$WARMUP_STEPS" \
+            --session-option omnivoice.generator_weight_type="$WARMUP_WEIGHT_TYPE" \
+            --session-option omnivoice.audio_tokenizer_weight_type="$WARMUP_AUDIO_TOKENIZER_WEIGHT_TYPE" \
+            --out "$WARMUP_OUT" \
             --log
 
         echo "  Completed at: $(date +%H:%M:%S)"
-        echo "  Output: ${OUT_DIR}/${OUT_NAME}"
+        echo "  Output: $WARMUP_OUT"
         echo ""
+    done
+
+    echo "=========================================="
+    echo "All $WARMUP_QUANTITY warmup run(s) completed: $(date)"
+    echo "=========================================="
+    echo ""
+else
+    echo "Warmup disabled."
+    echo ""
+fi
+
+TOTAL=$(( ${#STEPS_LIST[@]} * ${#WEIGHT_TYPES[@]} * ${#AUDIO_TOKENIZER_WEIGHT_TYPES[@]} ))
+COUNT=0
+
+for steps in "${STEPS_LIST[@]}"; do
+    for wt in "${WEIGHT_TYPES[@]}"; do
+        for atwt in "${AUDIO_TOKENIZER_WEIGHT_TYPES[@]}"; do
+            COUNT=$((COUNT + 1))
+
+            OUT_NAME="audiocpp_omnivoice_clone_mdwt_${wt}_atwt_${atwt}_step${steps}.wav"
+
+            echo "[$COUNT/$TOTAL] weight_type=$wt | audio_tokenizer_weight_type=$atwt | steps=$steps -> $OUT_NAME"
+            echo "  Started at: $(date +%H:%M:%S)"
+
+            CUDA_VISIBLE_DEVICES=$DEVICE build/bin/audiocpp_cli \
+                --task tts \
+                --family omnivoice \
+                --model models/OmniVoice \
+                --backend cuda \
+                --device "$DEVICE" \
+                --text "$TEXT" \
+                --voice-ref "$REF_WAV" \
+                --reference-text "$REF_TEXT" \
+                --language "$LANG" \
+                --seed "$SEED" \
+                --num-inference-steps "$steps" \
+                --session-option omnivoice.generator_weight_type="$wt" \
+                --session-option omnivoice.audio_tokenizer_weight_type="$atwt" \
+                --out "${OUT_DIR}/${OUT_NAME}" \
+                --log
+
+            echo "  Completed at: $(date +%H:%M:%S)"
+            echo "  Output: ${OUT_DIR}/${OUT_NAME}"
+            echo ""
+        done
     done
 done
 
