@@ -1,5 +1,5 @@
-conda create -n audiocpp python=3.11 -y
-conda activate audiocpp
+conda create -n audiocpp312 python=3.12 -y
+conda activate audiocpp312
 
 pip install torch safetensors PyYAML
 

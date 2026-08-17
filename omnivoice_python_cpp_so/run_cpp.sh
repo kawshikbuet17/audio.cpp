@@ -20,8 +20,8 @@ CUDA_VISIBLE_DEVICES=$DEVICE build/bin/audiocpp_cli \
     --num-inference-steps 20 \
     --guidance-scale 2.0 \
     --request-option speed=1.2 \
-    --session-option omnivoice.generator_weight_type=f16 \
-    --session-option omnivoice.audio_tokenizer_weight_type=f16 \
+    --session-option omnivoice.generator_weight_type=q8_0 \
+    --session-option omnivoice.audio_tokenizer_weight_type=q8_0 \
     --out omnivoice_python_cpp_so/outputs/cpp_output.wav \
     --log
 
