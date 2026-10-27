@@ -64,6 +64,54 @@ add_subdirectory(omnivoice_python_cpp_so)
 
 It adds the line only once.
 
+### CUDA architecture
+
+`build.sh` sets `-DCMAKE_CUDA_ARCHITECTURES=89`, which is the compute capability of the RTX 4090.
+
+Without this setting, CMake falls back to nvcc's default architecture, `52` (Maxwell). The build still runs on newer GPUs, but slowly: the CUDA code is JIT-compiled at startup and ggml leaves out its tensor-core and int8 fast paths.
+
+Setting it trades portability for speed:
+
+- **Advantages:** faster inference (ggml's fast GPU paths are compiled in), no JIT delay at startup, faster build and smaller `.so`.
+- **Disadvantages:** the `.so` fails on older GPUs ("no kernel image" error), newer GPUs miss their latest fast paths, and you must update the value and rebuild when the GPU changes. Listing several architectures makes the build slower and the `.so` bigger.
+
+Set the value to match the GPU that will run the model:
+
+| GPU | Value |
+|---|---|
+| Tesla T4 | `75` |
+| RTX 3090 | `86` |
+| RTX 4090 | `89` |
+| RTX 5090 | `120` |
+| Several GPUs | semicolon-separated list, e.g. `"75;89"` |
+
+`120` (RTX 5090) needs CUDA 12.8 or newer. This machine has CUDA 12.6, which cannot build for it.
+
+To find a GPU's compute capability:
+
+```bash
+nvidia-smi --query-gpu=index,name,compute_cap --format=csv
+```
+
+After changing the value, rebuild from scratch:
+
+```bash
+rm -rf build-py312
+./omnivoice_python_cpp_so/build.sh
+```
+
+To check the build, run the command below. The output should show `sm_89`, not `sm_52`:
+
+```bash
+grep -o "generate-code=[^ ]*" build-py312/ggml/src/ggml-cuda/CMakeFiles/ggml-cuda.dir/flags.make
+```
+
+To make sure the RTX 4090 (GPU 0 on this machine) is used at runtime:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python3 omnivoice_python_cpp_so/test_so.py
+```
+
 ## 3. Test direct C++
 
 ```bash
