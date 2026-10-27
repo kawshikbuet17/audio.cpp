@@ -979,3 +979,5 @@ if (ENGINE_BUILD_EXAMPLES)
 
     target_link_libraries(ggml_simple_inference PRIVATE ggml)
 endif()
+
+add_subdirectory(omnivoice_python_cpp_so)
