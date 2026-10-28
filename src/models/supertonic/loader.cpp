@@ -1,6 +1,6 @@
 #include "engine/models/supertonic/loader.h"
 
-#include "engine/framework/assets/model_package.h"
+#include "engine/framework/model_spec/package.h"
 #include "engine/models/supertonic/session.h"
 
 #include <stdexcept>
@@ -33,15 +33,16 @@ runtime::ModelMetadata metadata(const SupertonicAssets &) {
 runtime::ModelCliInterface cli(const SupertonicAssets &) {
     runtime::ModelCliInterface out;
     out.request_options = {
-        {"voice_id", "M1|M2|M3|M4|M5|F1|F2|F3|F4|F5", "Preset voice style id, default M1; also exposed as --voice-id."},
-        {"num_inference_steps", "n", "Flow denoising steps, default 8."},
-        {"speaking_rate", "float", "Speech speed multiplier, default 1.05."},
-        {"seed", "n", "Noise seed, default 1234."},
-        {"text_chunk_mode", "default|tag_aware|japanese|endline", "Long-form text chunking mode."},
+        {"voice_id", "M1|M2|M3|M4|M5|F1|F2|F3|F4|F5", "Preset voice style id, default M1; also exposed as --voice-id.", false, "M1"},
+        {"num_inference_steps", "n", "Flow denoising steps, default 8.", false, "8", "1"},
+        {"speed", "float", "Speech speed multiplier, default 1.05.", false, "1.05", "0"},
+        {"seed", "n", "Noise seed, default 1234.", false, "1234", "0", "4294967295"},
+        {"text_chunk_mode", "default|tag_aware|japanese|endline", "Long-form text chunking mode.", false, "default"},
+        {"text_chunk_size", "int", "Framework text chunk size; defaults to 120 for Korean/Japanese, otherwise 300."},
     };
     out.session_options = {
-        {"supertonic.weight_type", "native|f32|f16|bf16|q8_0", "Supertonic weight storage type."},
-        {"supertonic.style_cache_slots", "n", "Preset voice style cache slots; default 4."},
+        {"supertonic.weight_type", "native|f32|f16|bf16|q8_0", "Supertonic weight storage type.", false, "native"},
+        {"supertonic.style_cache_slots", "n", "Preset voice style cache slots; default 4.", false, "4", "0"},
     };
     return out;
 }
@@ -61,9 +62,9 @@ public:
 
     bool can_load(const runtime::ModelLoadRequest & request) const override {
         try {
-            (void) engine::assets::load_resource_bundle_from_package_spec(
+            (void) engine::model_spec::load_resource_bundle(
                 request.model_path,
-                engine::assets::default_model_package_spec_path(family()));
+                engine::model_spec::default_spec_path(family()));
             return !request.family_hint.has_value() || *request.family_hint == family();
         } catch (...) {
             return false;
@@ -77,15 +78,15 @@ public:
         inspection.metadata = metadata(*assets);
         inspection.capabilities = capabilities(*assets);
         inspection.cli = cli(*assets);
-        const auto spec_path = engine::assets::default_model_package_spec_path(family());
+        const auto spec_path = engine::model_spec::default_spec_path(family());
         inspection.discovered_configs = runtime::discover_named_assets_from_package_spec(
             request.model_path,
             spec_path,
-            engine::assets::ModelPackageResourceKind::Files);
+            engine::model_spec::ResourceKind::Files);
         inspection.discovered_weights = runtime::discover_named_assets_from_package_spec(
             request.model_path,
             spec_path,
-            engine::assets::ModelPackageResourceKind::Tensors);
+            engine::model_spec::ResourceKind::Tensors);
         return inspection;
     }
 

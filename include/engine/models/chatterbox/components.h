@@ -5,9 +5,9 @@
 #include "engine/framework/core/execution_context.h"
 #include "engine/framework/runtime/session.h"
 #include "engine/models/chatterbox/assets.h"
+#include "engine/framework/codecs/s3gen_runtime.h"
 
 #include <cstdint>
-#include <filesystem>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -18,8 +18,15 @@ struct HiftVocoderWeights;
 
 namespace engine::models::chatterbox {
 
+struct EmbedReferenceOutputs : codecs::s3gen::S3GenConditioning {
+    double prompt_mel_ms = 0.0;
+    double speaker_ms = 0.0;
+    double tokenizer_ms = 0.0;
+};
+
+void apply_s3_trim_fade(std::vector<float> & waveform, int sample_rate);
+
 namespace components {
-struct CampplusEncoderWeights;
 struct S3TokenizerV2Weights;
 }  // namespace components
 
@@ -33,30 +40,6 @@ struct TokenizerOutputs {
     int64_t token_count = 0;
 };
 
-struct EmbedReferenceOutputs {
-    std::vector<int32_t> prompt_tokens;
-    int64_t prompt_token_count = 0;
-    std::vector<float> prompt_feat;
-    int64_t prompt_feat_frames = 0;
-    int64_t prompt_feat_dims = 0;
-    std::vector<float> embedding;
-    int64_t embedding_size = 0;
-    double prompt_mel_ms = 0.0;
-    double speaker_ms = 0.0;
-    double tokenizer_ms = 0.0;
-};
-
-struct HiFTVocoderOutputs {
-    std::vector<float> waveform;
-    int64_t samples = 0;
-    std::vector<float> source;
-    int64_t source_channels = 0;
-    int64_t source_frames = 0;
-    std::vector<float> f0;
-    int64_t f0_frames = 0;
-    std::vector<float> post;
-    int64_t post_frames = 0;
-};
 
 struct VoiceEncoderConfig {
     int64_t sample_rate = 16000;
@@ -71,6 +54,10 @@ struct VoiceEncoderConfig {
     int64_t speaker_embed_size = 256;
     bool final_relu = true;
 };
+
+std::vector<float> compute_voice_encoder_mel(
+    const std::vector<float> & waveform,
+    const VoiceEncoderConfig & config);
 
 struct VoiceEncoderLayerWeights {
     std::vector<float> weight_ih;
@@ -88,24 +75,18 @@ struct VoiceEncoderWeights {
     std::vector<float> similarity_bias;
 };
 
-struct CampplusEncoderComponentWeights {
-    std::shared_ptr<const components::CampplusEncoderWeights> runtime_weights;
-};
-
 struct S3TokenizerComponentWeights {
     std::shared_ptr<const components::S3TokenizerV2Weights> runtime_weights;
 };
 
-struct HiFTVocoderComponentWeights {
-    std::shared_ptr<const engine::modules::HiftVocoderWeights> runtime_weights;
-};
 
-std::shared_ptr<const VoiceEncoderWeights> load_voice_encoder_weights(const std::filesystem::path & model_root);
+std::shared_ptr<const VoiceEncoderWeights> load_voice_encoder_weights(
+    const engine::assets::TensorSource & source);
 
 class VoiceEncoderComponent {
 public:
-    static VoiceEncoderComponent load_from_model_root(
-        const std::filesystem::path & model_root,
+    static VoiceEncoderComponent load_from_source(
+        const engine::assets::TensorSource & source,
         engine::core::BackendConfig backend);
 
     VoiceEncoderComponent(
@@ -123,18 +104,20 @@ private:
 };
 
 class CAMPPlusEncoderComponent {
+    struct State;
+
 public:
-    static CAMPPlusEncoderComponent load_from_checkpoint(
-        const std::filesystem::path & checkpoint_path,
+    static CAMPPlusEncoderComponent load_from_source(
+        std::shared_ptr<const engine::assets::TensorSource> source,
         const engine::core::ExecutionContext & execution_context,
         engine::assets::TensorStorageType weight_storage_type = engine::assets::TensorStorageType::Native);
 
-    CAMPPlusEncoderComponent(
-        std::shared_ptr<const CampplusEncoderComponentWeights> weights,
+    CAMPPlusEncoderComponent() = default;
+    explicit CAMPPlusEncoderComponent(
+        std::shared_ptr<State> state,
         const engine::core::ExecutionContext & execution_context);
 
     const engine::core::BackendConfig & backend() const noexcept;
-    const std::shared_ptr<const CampplusEncoderComponentWeights> & weights() const noexcept;
     SpeakerEncoderOutputs embed_from_audio(const runtime::AudioBuffer & audio) const;
     SpeakerEncoderOutputs embed_from_features(
         const std::vector<float> & features,
@@ -142,16 +125,14 @@ public:
         int64_t dims) const;
 
 private:
-    struct State;
-    std::shared_ptr<const CampplusEncoderComponentWeights> weights_;
     const engine::core::ExecutionContext * execution_context_ = nullptr;
     std::shared_ptr<State> state_;
 };
 
 class S3TokenizerComponent {
 public:
-    static S3TokenizerComponent load_from_checkpoint(
-        const std::filesystem::path & checkpoint_path,
+    static S3TokenizerComponent load_from_source(
+        const engine::assets::TensorSource & source,
         const engine::core::ExecutionContext & execution_context,
         engine::assets::TensorStorageType weight_storage_type = engine::assets::TensorStorageType::Native);
 
@@ -165,10 +146,10 @@ public:
         const runtime::AudioBuffer & audio,
         std::optional<int64_t> max_len) const;
     EmbedReferenceOutputs embed_reference(
-        const CampplusEncoderComponentWeights & speaker_weights,
+        const CAMPPlusEncoderComponent & speaker_encoder,
         const runtime::AudioBuffer & audio) const;
     EmbedReferenceOutputs embed_reference_from_wavs(
-        const CampplusEncoderComponentWeights & speaker_weights,
+        const CAMPPlusEncoderComponent & speaker_encoder,
         const runtime::AudioBuffer & audio_24k,
         const runtime::AudioBuffer & audio_16k) const;
 
@@ -179,33 +160,5 @@ private:
     std::shared_ptr<State> state_;
 };
 
-class HiFTVocoderComponent {
-public:
-    static HiFTVocoderComponent load_from_checkpoint(
-        const std::filesystem::path & checkpoint_path,
-        const engine::core::ExecutionContext & execution_context,
-        engine::assets::TensorStorageType weight_storage_type = engine::assets::TensorStorageType::Native);
-
-    HiFTVocoderComponent(
-        std::shared_ptr<const HiFTVocoderComponentWeights> weights,
-        const engine::core::ExecutionContext & execution_context);
-
-    const engine::core::BackendConfig & backend() const noexcept;
-    const std::shared_ptr<const HiFTVocoderComponentWeights> & weights() const noexcept;
-    HiFTVocoderOutputs infer(
-        const std::vector<float> & speech_feat,
-        int64_t batch,
-        int64_t frames,
-        uint64_t seed,
-        uint64_t prior_noise_values,
-        const std::vector<float> & cache_source) const;
-    void release_runtime_cache() const;
-
-private:
-    struct State;
-    std::shared_ptr<const HiFTVocoderComponentWeights> weights_;
-    const engine::core::ExecutionContext * execution_context_ = nullptr;
-    std::shared_ptr<State> state_;
-};
 
 }  // namespace engine::models::chatterbox

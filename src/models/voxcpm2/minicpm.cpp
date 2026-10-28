@@ -8,6 +8,7 @@
 #include "engine/framework/modules/lookup_modules.h"
 #include "engine/framework/modules/norm_modules.h"
 #include "engine/framework/modules/optimizations/fast_kv_modules.h"
+#include "engine/framework/modules/packed_linear_weights.h"
 #include "engine/framework/modules/primitive_modules.h"
 #include "engine/framework/modules/structural_modules.h"
 #include "engine/framework/modules/weight_binding.h"
@@ -86,11 +87,13 @@ linear_weights(engine::core::BackendWeightStore &store,
                                      out_features, in_features, use_bias);
 }
 
-VoxCPM2MiniCPMWeights load_minicpm_weights(
-    engine::core::BackendWeightStore &store,
-    const engine::assets::TensorSource &source, const std::string &prefix,
-    const VoxCPM2MiniCPMConfig &config,
-    engine::assets::TensorStorageType storage_type, bool load_token_embedding) {
+VoxCPM2MiniCPMWeights
+load_minicpm_weights(engine::core::BackendWeightStore &store,
+                     const engine::assets::TensorSource &source,
+                     const std::string &prefix,
+                     const VoxCPM2MiniCPMConfig &config,
+                     engine::assets::TensorStorageType storage_type,
+                     bool load_token_embedding, bool optimized) {
   const int64_t dim = head_dim(config);
   VoxCPM2MiniCPMWeights weights;
   weights.config = config;
@@ -116,27 +119,53 @@ VoxCPM2MiniCPMWeights load_minicpm_weights(
     VoxCPM2MiniCPMLayerWeights layer_weights;
     layer_weights.input_norm = weight_binding::norm_weight_from_source(
         store, source, layer_prefix + ".input_layernorm", config.hidden_size);
-    layer_weights.q_proj = linear_weights(
-        store, source, layer_prefix + ".self_attn.q_proj", storage_type,
-        config.num_attention_heads * dim, config.hidden_size, false);
-    layer_weights.k_proj = linear_weights(
-        store, source, layer_prefix + ".self_attn.k_proj", storage_type,
-        config.num_key_value_heads * dim, config.hidden_size, false);
-    layer_weights.v_proj = linear_weights(
-        store, source, layer_prefix + ".self_attn.v_proj", storage_type,
-        config.num_key_value_heads * dim, config.hidden_size, false);
+    if (optimized) {
+      layer_weights.qkv_proj =
+          engine::modules::PackedLinearWeightsBuilder(
+              {config.hidden_size,
+               {{layer_prefix + ".self_attn.q_proj.weight", std::nullopt,
+                 config.num_attention_heads * dim},
+                {layer_prefix + ".self_attn.k_proj.weight", std::nullopt,
+                 config.num_key_value_heads * dim},
+                {layer_prefix + ".self_attn.v_proj.weight", std::nullopt,
+                 config.num_key_value_heads * dim}},
+               false})
+              .build(store, source, storage_type);
+    } else {
+      layer_weights.q_proj = linear_weights(
+          store, source, layer_prefix + ".self_attn.q_proj", storage_type,
+          config.num_attention_heads * dim, config.hidden_size, false);
+      layer_weights.k_proj = linear_weights(
+          store, source, layer_prefix + ".self_attn.k_proj", storage_type,
+          config.num_key_value_heads * dim, config.hidden_size, false);
+      layer_weights.v_proj = linear_weights(
+          store, source, layer_prefix + ".self_attn.v_proj", storage_type,
+          config.num_key_value_heads * dim, config.hidden_size, false);
+    }
     layer_weights.o_proj = linear_weights(
         store, source, layer_prefix + ".self_attn.o_proj", storage_type,
         config.hidden_size, config.num_attention_heads * dim, false);
     layer_weights.post_norm = weight_binding::norm_weight_from_source(
         store, source, layer_prefix + ".post_attention_layernorm",
         config.hidden_size);
-    layer_weights.gate_proj = linear_weights(
-        store, source, layer_prefix + ".mlp.gate_proj", storage_type,
-        config.intermediate_size, config.hidden_size, false);
-    layer_weights.up_proj = linear_weights(
-        store, source, layer_prefix + ".mlp.up_proj", storage_type,
-        config.intermediate_size, config.hidden_size, false);
+    if (optimized) {
+      layer_weights.gate_up_proj =
+          engine::modules::PackedLinearWeightsBuilder(
+              {config.hidden_size,
+               {{layer_prefix + ".mlp.gate_proj.weight", std::nullopt,
+                 config.intermediate_size},
+                {layer_prefix + ".mlp.up_proj.weight", std::nullopt,
+                 config.intermediate_size}},
+               false})
+              .build(store, source, storage_type);
+    } else {
+      layer_weights.gate_proj = linear_weights(
+          store, source, layer_prefix + ".mlp.gate_proj", storage_type,
+          config.intermediate_size, config.hidden_size, false);
+      layer_weights.up_proj = linear_weights(
+          store, source, layer_prefix + ".mlp.up_proj", storage_type,
+          config.intermediate_size, config.hidden_size, false);
+    }
     layer_weights.down_proj = linear_weights(
         store, source, layer_prefix + ".mlp.down_proj", storage_type,
         config.hidden_size, config.intermediate_size, false);
@@ -178,18 +207,20 @@ std::shared_ptr<const VoxCPM2ModelWeights>
 load_model_weights(const VoxCPM2Assets &assets,
                    engine::core::ExecutionContext &execution_context,
                    size_t weight_context_bytes,
-                   engine::assets::TensorStorageType storage_type) {
+                   engine::assets::TensorStorageType storage_type,
+                   bool optimized) {
   auto weights = std::make_shared<VoxCPM2ModelWeights>();
   weights->store = std::make_shared<engine::core::BackendWeightStore>(
       execution_context.backend(), execution_context.backend_type(),
       "voxcpm2.model.weights", weight_context_bytes);
   auto &store = *weights->store;
   const auto &source = *assets.model_weights;
-  weights->base_lm = load_minicpm_weights(store, source, "base_lm",
-                                          assets.config.lm, storage_type, true);
+  weights->base_lm =
+      load_minicpm_weights(store, source, "base_lm", assets.config.lm,
+                           storage_type, true, optimized);
   weights->residual_lm = load_minicpm_weights(store, source, "residual_lm",
                                               residual_lm_config(assets.config),
-                                              storage_type, false);
+                                              storage_type, false, optimized);
 
   const auto encoder_config =
       local_transformer_config(assets.config.lm, assets.config.encoder);
@@ -201,7 +232,7 @@ load_model_weights(const VoxCPM2Assets &assets,
       assets.config.encoder.hidden_dim, assets.config.feat_dim, true);
   weights->feat_encoder.encoder =
       load_minicpm_weights(store, source, "feat_encoder.encoder",
-                           encoder_config, storage_type, false);
+                           encoder_config, storage_type, false, optimized);
 
   const auto dit_config =
       local_transformer_config(assets.config.lm, assets.config.dit);
@@ -230,7 +261,7 @@ load_model_weights(const VoxCPM2Assets &assets,
       true);
   weights->dit.decoder =
       load_minicpm_weights(store, source, "feat_decoder.estimator.decoder",
-                           dit_config, storage_type, false);
+                           dit_config, storage_type, false, optimized);
 
   weights->projections.fsq_in_proj =
       linear_weights(store, source, "fsq_layer.in_proj", storage_type,
@@ -262,20 +293,19 @@ load_model_weights(const VoxCPM2Assets &assets,
   return weights;
 }
 
-
-
 class VoxCPM2WeightsRuntime::Impl {
 public:
   Impl(std::shared_ptr<const VoxCPM2Assets> assets,
        engine::core::ExecutionContext &execution_context,
        size_t weight_context_bytes,
-       engine::assets::TensorStorageType weight_storage_type)
+       engine::assets::TensorStorageType weight_storage_type, bool optimized)
       : assets_(std::move(assets)), execution_context_(execution_context) {
     if (assets_ == nullptr) {
       throw std::runtime_error("VoxCPM2 weights runtime requires assets");
     }
-    weights_ = load_model_weights(*assets_, execution_context_,
-                                  weight_context_bytes, weight_storage_type);
+    weights_ =
+        load_model_weights(*assets_, execution_context_, weight_context_bytes,
+                           weight_storage_type, optimized);
   }
 
   const VoxCPM2Assets &assets() const noexcept { return *assets_; }
@@ -300,10 +330,10 @@ VoxCPM2WeightsRuntime::VoxCPM2WeightsRuntime(
     std::shared_ptr<const VoxCPM2Assets> assets,
     engine::core::ExecutionContext &execution_context,
     size_t weight_context_bytes,
-    engine::assets::TensorStorageType weight_storage_type)
+    engine::assets::TensorStorageType weight_storage_type, bool optimized)
     : impl_(std::make_unique<Impl>(std::move(assets), execution_context,
-                                   weight_context_bytes, weight_storage_type)) {
-}
+                                   weight_context_bytes, weight_storage_type,
+                                   optimized)) {}
 
 VoxCPM2WeightsRuntime::~VoxCPM2WeightsRuntime() = default;
 
@@ -482,18 +512,41 @@ minicpm_prefill_layer(engine::core::ModuleBuildContext &ctx,
   auto hidden = engine::modules::RMSNormModule(
                     {config.hidden_size, config.rms_norm_eps, true, false})
                     .build(ctx, input, layer.input_norm);
-  auto q = engine::modules::LinearModule(
-               binding::linear_config(config.hidden_size,
-                                      config.num_attention_heads * dim, false))
-               .build(ctx, hidden, layer.q_proj);
-  auto k = engine::modules::LinearModule(
-               binding::linear_config(config.hidden_size,
-                                      config.num_key_value_heads * dim, false))
-               .build(ctx, hidden, layer.k_proj);
-  auto v = engine::modules::LinearModule(
-               binding::linear_config(config.hidden_size,
-                                      config.num_key_value_heads * dim, false))
-               .build(ctx, hidden, layer.v_proj);
+  engine::core::TensorValue q, k, v;
+  if (layer.qkv_proj) {
+    auto packed = engine::modules::LinearModule(
+                      binding::linear_config(config.hidden_size,
+                                             (config.num_attention_heads +
+                                              2 * config.num_key_value_heads) *
+                                                 dim,
+                                             false))
+                      .build(ctx, hidden, *layer.qkv_proj);
+    const auto axis = static_cast<int>(hidden.shape.rank - 1);
+    q = engine::modules::SliceModule(
+            {axis, 0, config.num_attention_heads * dim})
+            .build(ctx, packed);
+    k = engine::modules::SliceModule({axis, config.num_attention_heads * dim,
+                                      config.num_key_value_heads * dim})
+            .build(ctx, packed);
+    v = engine::modules::SliceModule(
+            {axis,
+             (config.num_attention_heads + config.num_key_value_heads) * dim,
+             config.num_key_value_heads * dim})
+            .build(ctx, packed);
+  } else {
+    q = engine::modules::LinearModule(
+            binding::linear_config(config.hidden_size,
+                                   config.num_attention_heads * dim, false))
+            .build(ctx, hidden, layer.q_proj);
+    k = engine::modules::LinearModule(
+            binding::linear_config(config.hidden_size,
+                                   config.num_key_value_heads * dim, false))
+            .build(ctx, hidden, layer.k_proj);
+    v = engine::modules::LinearModule(
+            binding::linear_config(config.hidden_size,
+                                   config.num_key_value_heads * dim, false))
+            .build(ctx, hidden, layer.v_proj);
+  }
   q = apply_minicpm_rope(ctx,
                          reshape_heads(ctx, q, config.num_attention_heads, dim),
                          positions, weights);
@@ -536,15 +589,31 @@ minicpm_prefill_layer(engine::core::ModuleBuildContext &ctx,
   hidden = engine::modules::RMSNormModule(
                {config.hidden_size, config.rms_norm_eps, true, false})
                .build(ctx, x, layer.post_norm);
-  auto gate = engine::modules::LinearModule(
-                  binding::linear_config(config.hidden_size,
-                                         config.intermediate_size, false))
-                  .build(ctx, hidden, layer.gate_proj);
-  gate = engine::modules::SiluModule{}.build(ctx, gate);
-  auto up = engine::modules::LinearModule(
-                binding::linear_config(config.hidden_size,
-                                       config.intermediate_size, false))
-                .build(ctx, hidden, layer.up_proj);
+  engine::core::TensorValue gate, up;
+  if (layer.gate_up_proj) {
+    auto packed =
+        engine::modules::LinearModule(
+            binding::linear_config(config.hidden_size,
+                                   2 * config.intermediate_size, false))
+            .build(ctx, hidden, *layer.gate_up_proj);
+    const auto axis = static_cast<int>(hidden.shape.rank - 1);
+    gate = engine::modules::SliceModule({axis, 0, config.intermediate_size})
+               .build(ctx, packed);
+    up = engine::modules::SliceModule(
+             {axis, config.intermediate_size, config.intermediate_size})
+             .build(ctx, packed);
+    gate = engine::modules::SiluModule{}.build(ctx, gate);
+  } else {
+    gate = engine::modules::LinearModule(
+               binding::linear_config(config.hidden_size,
+                                      config.intermediate_size, false))
+               .build(ctx, hidden, layer.gate_proj);
+    gate = engine::modules::SiluModule{}.build(ctx, gate);
+    up = engine::modules::LinearModule(
+             binding::linear_config(config.hidden_size,
+                                    config.intermediate_size, false))
+             .build(ctx, hidden, layer.up_proj);
+  }
   auto gated = engine::modules::MulModule{}.build(ctx, gate, up);
   auto ff = engine::modules::LinearModule(
                 binding::linear_config(config.intermediate_size,
@@ -564,9 +633,8 @@ minicpm_prefill_layer(engine::core::ModuleBuildContext &ctx,
 class VoxCPM2PromptPrefillRuntime::Impl {
 public:
   Impl(std::shared_ptr<const VoxCPM2WeightsRuntime> weights,
-       size_t graph_context_bytes, bool mem_saver)
-      : weights_(std::move(weights)), graph_context_bytes_(graph_context_bytes),
-        mem_saver_(mem_saver) {
+       size_t graph_context_bytes)
+      : weights_(std::move(weights)), graph_context_bytes_(graph_context_bytes) {
     if (weights_ == nullptr) {
       throw std::runtime_error("VoxCPM2 prompt prefill runtime requires weights");
     }
@@ -637,6 +705,8 @@ public:
     return output;
   }
 
+  void release_runtime_memory() { release_graph(); }
+
 private:
   engine::runtime::TransformerKVState
   read_state(const std::vector<ggml_tensor *> &keys,
@@ -665,10 +735,6 @@ private:
   void release_graph() {
     if (graph_ != nullptr) {
       engine::core::release_backend_graph_resources(weights_->backend(), graph_);
-    }
-    if (buffer_ != nullptr) {
-      ggml_backend_buffer_free(buffer_);
-      buffer_ = nullptr;
     }
     if (gallocr_ != nullptr) {
       ggml_gallocr_free(gallocr_);
@@ -706,23 +772,13 @@ private:
         engine::core::TensorShape::from_dims(
             {1, steps, config.lm.hidden_size}));
     input_embeddings_ = input_embeddings.tensor;
-    if (mem_saver_) {
-      ggml_set_input(input_embeddings_);
-    }
     auto current_embeddings = engine::core::make_tensor(
         ctx, GGML_TYPE_F32,
         engine::core::TensorShape::from_dims(
             {1, steps, config.lm.hidden_size}));
     current_embeddings_ = current_embeddings.tensor;
-    if (mem_saver_) {
-      ggml_set_input(current_embeddings_);
-    }
     text_mask_ = ggml_new_tensor_3d(ctx_.get(), GGML_TYPE_F32, 1, steps, 1);
     audio_mask_ = ggml_new_tensor_3d(ctx_.get(), GGML_TYPE_F32, 1, steps, 1);
-    if (mem_saver_) {
-      ggml_set_input(text_mask_);
-      ggml_set_input(audio_mask_);
-    }
     auto text_mask = engine::core::wrap_tensor(
         text_mask_, engine::core::TensorShape::from_dims({1, steps, 1}),
         GGML_TYPE_F32);
@@ -730,9 +786,6 @@ private:
         audio_mask_, engine::core::TensorShape::from_dims({1, steps, 1}),
         GGML_TYPE_F32);
     positions_ = ggml_new_tensor_1d(ctx_.get(), GGML_TYPE_I32, steps);
-    if (mem_saver_) {
-      ggml_set_input(positions_);
-    }
     auto positions = engine::core::wrap_tensor(
         positions_, engine::core::TensorShape::from_dims({steps}),
         GGML_TYPE_I32);
@@ -741,18 +794,15 @@ private:
       auto layer_out = minicpm_prefill_layer(
           ctx, base_hidden, positions, layer, model_weights.base_lm);
       base_hidden = layer_out.output;
-      base_keys_.push_back(layer_out.key.tensor);
-      base_values_.push_back(layer_out.value.tensor);
-      if (mem_saver_) {
-        ggml_set_output(base_keys_.back());
-        if (base_keys_.back()->view_src != nullptr) {
-          ggml_set_output(base_keys_.back()->view_src);
-        }
-        ggml_set_output(base_values_.back());
-        if (base_values_.back()->view_src != nullptr) {
-          ggml_set_output(base_values_.back()->view_src);
-        }
-      }
+      auto *key = ggml_cpy(ctx_.get(), layer_out.key.tensor,
+                           ggml_dup_tensor(ctx_.get(), layer_out.key.tensor));
+      auto *value =
+          ggml_cpy(ctx_.get(), layer_out.value.tensor,
+                   ggml_dup_tensor(ctx_.get(), layer_out.value.tensor));
+      ggml_set_output(key);
+      ggml_set_output(value);
+      base_keys_.push_back(key);
+      base_values_.push_back(value);
     }
     base_hidden = engine::modules::RMSNormModule(
                       {config.lm.hidden_size, config.lm.rms_norm_eps, true,
@@ -802,18 +852,15 @@ private:
       auto layer_out = minicpm_prefill_layer(
           ctx, residual_hidden, positions, layer, model_weights.residual_lm);
       residual_hidden = layer_out.output;
-      residual_keys_.push_back(layer_out.key.tensor);
-      residual_values_.push_back(layer_out.value.tensor);
-      if (mem_saver_) {
-        ggml_set_output(residual_keys_.back());
-        if (residual_keys_.back()->view_src != nullptr) {
-          ggml_set_output(residual_keys_.back()->view_src);
-        }
-        ggml_set_output(residual_values_.back());
-        if (residual_values_.back()->view_src != nullptr) {
-          ggml_set_output(residual_values_.back()->view_src);
-        }
-      }
+      auto *key = ggml_cpy(ctx_.get(), layer_out.key.tensor,
+                           ggml_dup_tensor(ctx_.get(), layer_out.key.tensor));
+      auto *value =
+          ggml_cpy(ctx_.get(), layer_out.value.tensor,
+                   ggml_dup_tensor(ctx_.get(), layer_out.value.tensor));
+      ggml_set_output(key);
+      ggml_set_output(value);
+      residual_keys_.push_back(key);
+      residual_values_.push_back(value);
     }
     residual_hidden = engine::modules::RMSNormModule(
                           {config.lm.hidden_size, config.lm.rms_norm_eps, true,
@@ -834,33 +881,31 @@ private:
         engine::core::TensorShape::from_dims({config.lm.hidden_size}));
     residual_hidden_output_ = last_residual.tensor;
     ggml_set_output(lm_hidden_output_);
-    if (mem_saver_ && lm_hidden_output_->view_src != nullptr) {
-      ggml_set_output(lm_hidden_output_->view_src);
-    }
     ggml_set_output(residual_hidden_output_);
-    if (mem_saver_ && residual_hidden_output_->view_src != nullptr) {
-      ggml_set_output(residual_hidden_output_->view_src);
-    }
     graph_ = ggml_new_graph_custom(ctx_.get(), kDefaultGraphNodes, false);
     ggml_build_forward_expand(graph_, lm_hidden_output_);
     ggml_build_forward_expand(graph_, residual_hidden_output_);
-    if (mem_saver_) {
-      gallocr_ = ggml_gallocr_new(
-          ggml_backend_get_default_buffer_type(weights_->backend()));
-      if (gallocr_ == nullptr || !ggml_gallocr_reserve(gallocr_, graph_) ||
-          !ggml_gallocr_alloc_graph(gallocr_, graph_)) {
-        if (gallocr_ != nullptr) {
-          ggml_gallocr_free(gallocr_);
-          gallocr_ = nullptr;
-        }
-        release_graph();
-        throw std::runtime_error(
-            "failed to allocate VoxCPM2 prompt prefill graph");
-      }
-    } else {
-      buffer_ = ggml_backend_alloc_ctx_tensors(ctx_.get(), weights_->backend());
+    for (auto *key : base_keys_) {
+      ggml_build_forward_expand(graph_, key);
     }
-    if (!mem_saver_ && buffer_ == nullptr) {
+    for (auto *value : base_values_) {
+      ggml_build_forward_expand(graph_, value);
+    }
+    for (auto *key : residual_keys_) {
+      ggml_build_forward_expand(graph_, key);
+    }
+    for (auto *value : residual_values_) {
+      ggml_build_forward_expand(graph_, value);
+    }
+    gallocr_ = ggml_gallocr_new(
+        ggml_backend_get_default_buffer_type(weights_->backend()));
+    if (gallocr_ == nullptr || !ggml_gallocr_reserve(gallocr_, graph_) ||
+        !ggml_gallocr_alloc_graph(gallocr_, graph_)) {
+      if (gallocr_ != nullptr) {
+        ggml_gallocr_free(gallocr_);
+        gallocr_ = nullptr;
+      }
+      release_graph();
       throw std::runtime_error(
           "failed to allocate VoxCPM2 prompt prefill graph");
     }
@@ -875,7 +920,6 @@ private:
 
   std::shared_ptr<const VoxCPM2WeightsRuntime> weights_;
   size_t graph_context_bytes_ = 0;
-  bool mem_saver_ = false;
   int64_t sequence_steps_ = 0;
   std::unique_ptr<ggml_context, GgmlContextDeleter> ctx_;
   ggml_tensor *input_embeddings_ = nullptr;
@@ -890,21 +934,23 @@ private:
   std::vector<ggml_tensor *> residual_keys_;
   std::vector<ggml_tensor *> residual_values_;
   ggml_cgraph *graph_ = nullptr;
-  ggml_backend_buffer_t buffer_ = nullptr;
   ggml_gallocr_t gallocr_ = nullptr;
 };
 
 VoxCPM2PromptPrefillRuntime::VoxCPM2PromptPrefillRuntime(
     std::shared_ptr<const VoxCPM2WeightsRuntime> weights,
-    size_t graph_context_bytes, bool mem_saver)
-    : impl_(std::make_unique<Impl>(std::move(weights), graph_context_bytes,
-                                   mem_saver)) {}
+    size_t graph_context_bytes)
+    : impl_(std::make_unique<Impl>(std::move(weights), graph_context_bytes)) {}
 
 VoxCPM2PromptPrefillRuntime::~VoxCPM2PromptPrefillRuntime() = default;
 
 VoxCPM2PromptPrefillOutput
 VoxCPM2PromptPrefillRuntime::run(const VoxCPM2PromptPrefillInput &input) {
   return impl_->run(input);
+}
+
+void VoxCPM2PromptPrefillRuntime::release_runtime_memory() {
+  impl_->release_runtime_memory();
 }
 
 engine::core::TensorValue
@@ -923,18 +969,41 @@ minicpm_layer_with_static_cache(engine::core::ModuleBuildContext &ctx,
   auto hidden = engine::modules::RMSNormModule(
                     {config.hidden_size, config.rms_norm_eps, true, false})
                     .build(ctx, input, layer.input_norm);
-  auto q = engine::modules::LinearModule(
-               binding::linear_config(config.hidden_size,
-                                      config.num_attention_heads * dim, false))
-               .build(ctx, hidden, layer.q_proj);
-  auto k = engine::modules::LinearModule(
-               binding::linear_config(config.hidden_size,
-                                      config.num_key_value_heads * dim, false))
-               .build(ctx, hidden, layer.k_proj);
-  auto v = engine::modules::LinearModule(
-               binding::linear_config(config.hidden_size,
-                                      config.num_key_value_heads * dim, false))
-               .build(ctx, hidden, layer.v_proj);
+  engine::core::TensorValue q, k, v;
+  if (layer.qkv_proj) {
+    auto packed = engine::modules::LinearModule(
+                      binding::linear_config(config.hidden_size,
+                                             (config.num_attention_heads +
+                                              2 * config.num_key_value_heads) *
+                                                 dim,
+                                             false))
+                      .build(ctx, hidden, *layer.qkv_proj);
+    const auto axis = static_cast<int>(hidden.shape.rank - 1);
+    q = engine::modules::SliceModule(
+            {axis, 0, config.num_attention_heads * dim})
+            .build(ctx, packed);
+    k = engine::modules::SliceModule({axis, config.num_attention_heads * dim,
+                                      config.num_key_value_heads * dim})
+            .build(ctx, packed);
+    v = engine::modules::SliceModule(
+            {axis,
+             (config.num_attention_heads + config.num_key_value_heads) * dim,
+             config.num_key_value_heads * dim})
+            .build(ctx, packed);
+  } else {
+    q = engine::modules::LinearModule(
+            binding::linear_config(config.hidden_size,
+                                   config.num_attention_heads * dim, false))
+            .build(ctx, hidden, layer.q_proj);
+    k = engine::modules::LinearModule(
+            binding::linear_config(config.hidden_size,
+                                   config.num_key_value_heads * dim, false))
+            .build(ctx, hidden, layer.k_proj);
+    v = engine::modules::LinearModule(
+            binding::linear_config(config.hidden_size,
+                                   config.num_key_value_heads * dim, false))
+            .build(ctx, hidden, layer.v_proj);
+  }
   q = apply_minicpm_rope(ctx,
                          reshape_heads(ctx, q, config.num_attention_heads, dim),
                          positions, weights);
@@ -979,15 +1048,31 @@ minicpm_layer_with_static_cache(engine::core::ModuleBuildContext &ctx,
   hidden = engine::modules::RMSNormModule(
                {config.hidden_size, config.rms_norm_eps, true, false})
                .build(ctx, x, layer.post_norm);
-  auto gate = engine::modules::LinearModule(
-                  binding::linear_config(config.hidden_size,
-                                         config.intermediate_size, false))
-                  .build(ctx, hidden, layer.gate_proj);
-  gate = engine::modules::SiluModule{}.build(ctx, gate);
-  auto up = engine::modules::LinearModule(
-                binding::linear_config(config.hidden_size,
-                                       config.intermediate_size, false))
-                .build(ctx, hidden, layer.up_proj);
+  engine::core::TensorValue gate, up;
+  if (layer.gate_up_proj) {
+    auto packed =
+        engine::modules::LinearModule(
+            binding::linear_config(config.hidden_size,
+                                   2 * config.intermediate_size, false))
+            .build(ctx, hidden, *layer.gate_up_proj);
+    const auto axis = static_cast<int>(hidden.shape.rank - 1);
+    gate = engine::modules::SliceModule({axis, 0, config.intermediate_size})
+               .build(ctx, packed);
+    up = engine::modules::SliceModule(
+             {axis, config.intermediate_size, config.intermediate_size})
+             .build(ctx, packed);
+    gate = engine::modules::SiluModule{}.build(ctx, gate);
+  } else {
+    gate = engine::modules::LinearModule(
+               binding::linear_config(config.hidden_size,
+                                      config.intermediate_size, false))
+               .build(ctx, hidden, layer.gate_proj);
+    gate = engine::modules::SiluModule{}.build(ctx, gate);
+    up = engine::modules::LinearModule(
+             binding::linear_config(config.hidden_size,
+                                    config.intermediate_size, false))
+             .build(ctx, hidden, layer.up_proj);
+  }
   auto gated = engine::modules::MulModule{}.build(ctx, gate, up);
   auto ff = engine::modules::LinearModule(
                 binding::linear_config(config.intermediate_size,
@@ -1038,6 +1123,9 @@ public:
         select_minicpm_weights(weights_->weights(), kind_).layers.size());
     step_cache_.import_state(state);
   }
+
+  int64_t cache_steps() const { return cache_steps_; }
+  int64_t valid_steps() const { return step_cache_.valid_steps(); }
 
   void import_state(const engine::runtime::TransformerKVState &state) {
     ensure_graph();
@@ -1176,9 +1264,11 @@ private:
           ctx, x, position, cache_slot, attention_mask, cache_keys.back(),
           cache_values.back(), layer, lm_weights);
     }
+    engine::runtime::TransformerKVCacheOptions cache_options;
+    cache_options.direct_import = true;
     step_cache_ = engine::runtime::TransformerKVCache(
         cache_steps_, config.num_key_value_heads * dim, std::move(cache_keys),
-        std::move(cache_values));
+        std::move(cache_values), cache_options);
     x = engine::modules::RMSNormModule(
             {config.hidden_size, config.rms_norm_eps, true, false})
             .build(ctx, x, lm_weights.norm);
@@ -1228,6 +1318,14 @@ void VoxCPM2MiniCPMStepRuntime::import_state(
 engine::runtime::TransformerKVState
 VoxCPM2MiniCPMStepRuntime::export_state() const {
   return impl_->export_state();
+}
+
+int64_t VoxCPM2MiniCPMStepRuntime::cache_steps() const {
+  return impl_->cache_steps();
+}
+
+int64_t VoxCPM2MiniCPMStepRuntime::valid_steps() const {
+  return impl_->valid_steps();
 }
 
 VoxCPM2MiniCPMStepOutput

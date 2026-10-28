@@ -69,7 +69,11 @@ public:
 
     SoxrApi() {
         handle_ = io::open_dynamic_library(
-            {"libsoxr.so.0", "libsoxr.so", "libsoxr.dylib", "soxr.dll", "libsoxr.dll"});
+            {"libsoxr.so.0", "libsoxr.so", "libsoxr.dylib", "soxr.dll", "libsoxr.dll",
+#if defined(__APPLE__)
+             "/opt/homebrew/lib/libsoxr.dylib", "/usr/local/lib/libsoxr.dylib",
+#endif
+            });
         if (handle_ == nullptr) {
             return;
         }
@@ -402,6 +406,13 @@ std::vector<float> resample_mono_linear(
         output[i] = mono_samples[left] * (1.0F - frac) + mono_samples[right] * frac;
     }
     return output;
+}
+
+TorchaudioSincHannResampleOptions torchaudio_sinc_hann_float32_options() {
+    TorchaudioSincHannResampleOptions options;
+    options.kernel_mode = TorchaudioSincHannKernelMode::Float32ComputationStoredAsFloat32;
+    options.accumulation = TorchaudioSincHannAccumulation::Float32;
+    return options;
 }
 
 std::vector<float> resample_mono_torchaudio_sinc_hann(

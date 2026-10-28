@@ -3,13 +3,14 @@
 #include "engine/framework/core/backend.h"
 #include "engine/framework/core/backend_weight_store.h"
 #include "engine/framework/debug/profiler.h"
-#include "engine/framework/modules/attention/qwen_decoder.h"
+#include "engine/framework/modules/transformers/decoder.h"
 #include "engine/framework/modules/linear_module.h"
 #include "engine/framework/modules/norm_modules.h"
 #include "engine/framework/modules/structural_modules.h"
 #include "helper_utils.h"
 
 #include <ggml-backend.h>
+#include <ggml-alloc.h>
 #include <ggml.h>
 
 #include <algorithm>
@@ -37,14 +38,14 @@ public:
     }
 };
 
-modules::QwenDecoderLayerWeights load_pooler_layer_weights(
+modules::DecoderLayerWeights load_pooler_layer_weights(
     core::BackendWeightStore & store,
     const assets::TensorSource & source,
     const std::string & prefix,
     assets::TensorStorageType storage_type,
     const AceStepDiffusionConfig & config) {
     const int64_t dim = ace_step_diffusion_attention_head_dim(config, "ACE-Step cover tokenizer");
-    modules::QwenDecoderLayerWeights layer;
+    modules::DecoderLayerWeights layer;
     layer.input_norm.weight = store.load_f32_tensor(source, prefix + ".input_layernorm.weight", {config.hidden_size});
     layer.post_norm.weight = store.load_f32_tensor(source, prefix + ".post_attention_layernorm.weight", {config.hidden_size});
     layer.q_norm.weight = store.load_f32_tensor(source, prefix + ".self_attn.q_norm.weight", {dim});
@@ -94,7 +95,7 @@ std::shared_ptr<const AceStepCoverTokenizerWeights> load_cover_tokenizer_weights
         backend_type,
         "ace_step.cover_tokenizer.weights",
         256ull * 1024ull * 1024ull);
-    const auto & config = assets.config.diffusion;
+    const auto & config = assets.config.encoder;
     const auto & source = *assets.dit_weights;
     auto weights = std::make_shared<AceStepCoverTokenizerWeights>();
     weights->store = store;
@@ -193,9 +194,6 @@ public:
             if (backend_ != nullptr && graph_ != nullptr) {
                 engine::core::release_backend_graph_resources(backend_, graph_);
             }
-            if (buffer_ != nullptr) {
-                ggml_backend_buffer_free(buffer_);
-            }
         }
 
         bool can_run(int64_t code_count) const noexcept {
@@ -215,7 +213,7 @@ public:
             int64_t silence_channels,
             std::vector<float> & input_buffer) const {
             const auto total_start = Clock::now();
-            const auto & config = assets_->config.diffusion;
+            const auto & config = assets_->config.encoder;
             if (code_count <= 0 || code_count > code_capacity_) {
                 throw std::runtime_error("ACE-Step cover tokenizer chunk exceeds graph capacity");
             }
@@ -272,7 +270,7 @@ public:
 
     private:
         void build() {
-            const auto & config = assets_->config.diffusion;
+            const auto & config = assets_->config.encoder;
             const int64_t patch_tokens = config.pool_window_size + 1;
             ggml_init_params params{128ull * 1024ull * 1024ull, nullptr, true};
             ctx_.reset(ggml_init(params));
@@ -327,7 +325,7 @@ public:
                 core::TensorShape::from_dims({code_capacity_, 1, config.hidden_size})})
                                       .build(build_ctx, special_token);
             x = modules::ConcatModule({1}).build(build_ctx, special_tokens, x);
-            modules::QwenDecoderLayerConfig layer_config;
+            modules::DecoderLayerConfig layer_config;
             layer_config.hidden_size = config.hidden_size;
             layer_config.num_attention_heads = config.num_attention_heads;
             layer_config.num_key_value_heads = config.num_key_value_heads;
@@ -337,7 +335,7 @@ public:
             layer_config.rope_theta = config.rope_theta;
             layer_config.attention_precision = GGML_PREC_F32;
             layer_config.projection_precision = GGML_PREC_F32;
-            const modules::QwenDecoderLayerModule layer_module(layer_config);
+            const modules::DecoderLayerModule layer_module(layer_config);
             for (int64_t i = 0; i < config.num_attention_pooler_hidden_layers; ++i) {
                 const auto & layer = weights_->attention_pooler_layers.layers[static_cast<size_t>(i)];
                 const auto & mask =
@@ -359,10 +357,21 @@ public:
             ggml_set_output(output_);
             graph_ = ggml_new_graph_custom(ctx_.get(), 65536, false);
             ggml_build_forward_expand(graph_, output_);
-            buffer_ = ggml_backend_alloc_ctx_tensors(ctx_.get(), backend_);
-            if (buffer_ == nullptr) {
+            // Reuse intermediate storage without allowing chunk computations
+            // to overwrite the constants uploaded once for this cached graph.
+            for (auto * input : {input_, special_token_, positions_, full_attention_mask_, sliding_attention_mask_}) {
+                ggml_set_input(input);
+                ggml_build_forward_expand(graph_, input);
+                if (input != input_) {
+                    ggml_set_output(input);
+                }
+            }
+            graph_allocator_.reset(ggml_gallocr_new(ggml_backend_get_default_buffer_type(backend_)));
+            if (!graph_allocator_ || !ggml_gallocr_alloc_graph(graph_allocator_.get(), graph_)) {
                 throw std::runtime_error("ACE-Step cover tokenizer backend buffer allocation failed");
             }
+            engine::debug::trace_log_scalar("ace_step.cover_tokenizer.graph_bytes",
+                static_cast<int64_t>(ggml_gallocr_get_buffer_size(graph_allocator_.get(), 0)));
 
             std::vector<int32_t> position_values(static_cast<size_t>(patch_tokens), 0);
             for (int64_t i = 0; i < patch_tokens; ++i) {
@@ -410,7 +419,7 @@ public:
         core::TensorValue input_value_;
         ggml_tensor * output_ = nullptr;
         ggml_cgraph * graph_ = nullptr;
-        ggml_backend_buffer_t buffer_ = nullptr;
+        std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> graph_allocator_{nullptr, ggml_gallocr_free};
     };
 
     Impl(
@@ -423,7 +432,7 @@ public:
           threads_(std::max(1, execution.config().threads)),
           storage_type_(storage_type),
           quantizer_(ace_step_build_fsq_quantizer_table(
-              assets_->config.diffusion,
+              assets_->config.encoder,
               "ACE-Step native cover tokenizer")) {
         if (assets_ == nullptr) {
             throw std::runtime_error("ACE-Step cover tokenizer requires assets");
@@ -439,7 +448,7 @@ public:
         int64_t silence_frames,
         int64_t silence_channels) const {
         const auto total_start = Clock::now();
-        const auto & config = assets_->config.diffusion;
+        const auto & config = assets_->config.encoder;
         if (latents.frames <= 0 || latents.channels != config.latent_channels) {
             throw std::runtime_error("ACE-Step cover tokenizer requires positive latent frames and matching channels");
         }

@@ -2,6 +2,7 @@
 
 #include "engine/framework/runtime/session.h"
 
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <memory>
@@ -9,8 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
-namespace engine::assets {
-enum class ModelPackageResourceKind;
+namespace engine::model_spec {
+enum class ResourceKind;
 }
 
 namespace engine::runtime {
@@ -45,6 +46,10 @@ struct CliOptionInfo {
     std::string name;
     std::string value_name;
     std::string description;
+    bool required = false;
+    std::optional<std::string> default_value = std::nullopt;
+    std::optional<std::string> min_value = std::nullopt;
+    std::optional<std::string> max_value = std::nullopt;
 };
 
 struct ModelCliInterface {
@@ -78,7 +83,7 @@ std::vector<NamedAsset> discover_named_assets(
 std::vector<NamedAsset> discover_named_assets_from_package_spec(
     const std::filesystem::path & model_path,
     const std::filesystem::path & spec_path,
-    engine::assets::ModelPackageResourceKind kind);
+    engine::model_spec::ResourceKind kind);
 
 const NamedAsset * find_named_asset(
     const std::vector<NamedAsset> & assets,
@@ -112,6 +117,23 @@ struct LoaderAdvertisement {
     std::vector<std::string> api_endpoints;
 };
 
+/**
+ * One selected resource, with its model-reported resident cost in bytes.
+ */
+struct ModelEngineRequirement {
+    std::filesystem::path path;
+    size_t resident_bytes = 0;
+};
+
+/**
+ * Resources beyond weight files and their aggregate residency. The model applies its own
+ * residency policy; consumers use the paths for deduplication and add resident_bytes as given.
+ */
+struct ModelResourcePlan {
+    std::vector<ModelEngineRequirement> engines;
+    size_t resident_bytes = 0;
+};
+
 /** Map advertised capabilities to the HTTP surfaces they normally use. */
 std::vector<std::string> default_api_endpoints_for_capabilities(const CapabilitySet & capabilities);
 
@@ -120,6 +142,8 @@ public:
     virtual ~IVoiceModelLoader() = default;
 
     virtual std::string family() const = 0;
+    /** Alternate family names accepted for family hints (e.g. "habibi" for "f5_tts"). */
+    virtual std::vector<std::string> family_aliases() const { return {}; }
     virtual bool can_load(const ModelLoadRequest & request) const = 0;
     virtual ModelInspection inspect(const ModelLoadRequest & request) const = 0;
     virtual std::unique_ptr<ILoadedVoiceModel> load(const ModelLoadRequest & request) const = 0;
@@ -132,6 +156,19 @@ public:
     virtual std::string advertised_instructions_policy() const;
     virtual std::vector<std::string> advertised_api_endpoints() const;
     LoaderAdvertisement advertise() const;
+
+    /**
+     * The artifacts this family will hold resident for one load of `model_path` under these
+     * session options, priced by the family. A family whose stages are all ggml graphs reports
+     * nothing: its host-consumer estimate is the weight files plus the caller's runtime factor.
+     */
+    virtual ModelResourcePlan model_resources(
+        const std::filesystem::path & model_path,
+        const std::unordered_map<std::string, std::string> & session_options) const {
+        (void)model_path;
+        (void)session_options;
+        return {};
+    }
 };
 
 }  // namespace engine::runtime

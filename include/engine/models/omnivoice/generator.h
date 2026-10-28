@@ -9,7 +9,7 @@
 
 namespace engine::models::omnivoice {
 
-struct OmniVoiceGeneratorRuntimeStats {
+struct OmniVoiceQwen3DiffusionRuntimeStats {
     bool graph_rebuilt = false;
     int64_t total_token_capacity = 0;
     int64_t target_frame_capacity = 0;
@@ -23,24 +23,30 @@ struct OmniVoiceGeneratorRuntimeStats {
     double readback_ms = 0.0;
 };
 
-class OmniVoiceGeneratorRuntime {
+enum class OmniVoiceGeneratorPerfMode {
+    Standard,
+    FlashAttention,
+};
+
+class OmniVoiceQwen3DiffusionRuntime {
 public:
-    OmniVoiceGeneratorRuntime(
+    OmniVoiceQwen3DiffusionRuntime(
         std::shared_ptr<const OmniVoiceAssets> assets,
         core::ExecutionContext & execution_context,
         size_t prefill_graph_arena_bytes,
         size_t decode_graph_arena_bytes,
         size_t weight_context_bytes,
         engine::assets::TensorStorageType weight_storage_type,
-        bool mem_saver);
-    ~OmniVoiceGeneratorRuntime();
+        bool mem_saver,
+        OmniVoiceGeneratorPerfMode perf_mode);
+    ~OmniVoiceQwen3DiffusionRuntime();
 
     OmniVoiceGeneratedAudioTokens generate(
         const OmniVoicePrompt & prompt,
         const OmniVoiceGenerationOptions & options);
     void release_runtime_graphs();
     void seed_rng(uint32_t seed);
-    const OmniVoiceGeneratorRuntimeStats & last_stats() const noexcept;
+    const OmniVoiceQwen3DiffusionRuntimeStats & last_stats() const noexcept;
 
 private:
     struct Impl;

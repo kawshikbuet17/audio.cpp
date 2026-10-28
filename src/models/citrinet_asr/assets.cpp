@@ -1,11 +1,12 @@
 #include "engine/models/citrinet_asr/assets.h"
 
-#include "engine/framework/assets/model_package.h"
+#include "engine/framework/model_spec/package.h"
 #include "engine/framework/assets/tensor_source.h"
 #include "engine/framework/assets/weight_metadata.h"
 #include "engine/framework/io/filesystem.h"
 #include "engine/framework/io/json.h"
 
+#include <algorithm>
 #include <cmath>
 #include <mutex>
 #include <stdexcept>
@@ -119,6 +120,19 @@ CitrinetWeights load_citrinet_weights(engine::assets::ResourceBundle resources) 
     weights.fb = source->require_f32(
         "preprocessor.featurizer.fb",
         {1, weights.config.n_mels, weights.config.n_fft / 2 + 1});
+    engine::audio::NemoMelFrontendConfig frontend_config;
+    frontend_config.sample_rate = weights.config.sample_rate;
+    frontend_config.n_mels = weights.config.n_mels;
+    frontend_config.stft = {weights.config.n_fft, weights.config.hop_length,
+                            weights.config.win_length, true, engine::audio::STFTPadMode::Constant};
+    frontend_config.window = engine::audio::MelWindow::FromArgument;
+    frontend_config.mel_bank = engine::audio::MelBank::FromArgument;
+    frontend_config.norm = engine::audio::MelNorm::PerBinF32;
+    frontend_config.frame_multiple = std::max<int64_t>(1, weights.config.pad_to);
+    weights.frontend = std::make_shared<engine::audio::NemoMelFrontend>(
+        frontend_config, weights.window,
+        engine::audio::AudioTensor{weights.fb,
+            {weights.config.n_mels, weights.config.n_fft / 2 + 1}});
 
     const auto tokenizer_model_path = resources.require_file("tokenizer");
     weights.tokenizer_pieces = tokenizers::load_sentencepiece_model(tokenizer_model_path);
@@ -223,9 +237,9 @@ std::string checkpoint_cache_key(const std::filesystem::path & checkpoint_path) 
 std::shared_ptr<const CitrinetWeights> load_citrinet_weights_cached(const std::filesystem::path & model_path) {
     static std::mutex cache_mutex;
     static std::unordered_map<std::string, std::weak_ptr<const CitrinetWeights>> cache;
-    auto resources = engine::assets::load_resource_bundle_from_package_spec(
+    auto resources = engine::model_spec::load_resource_bundle(
         model_path,
-        engine::assets::default_model_package_spec_path("citrinet_asr"));
+        engine::model_spec::default_spec_path("citrinet_asr"));
     const auto key = checkpoint_cache_key(resources.require_file("weights"));
     {
         std::lock_guard<std::mutex> lock(cache_mutex);

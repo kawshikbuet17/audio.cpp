@@ -1,6 +1,6 @@
 #include "engine/models/vevo2/assets.h"
 
-#include "engine/framework/assets/model_package.h"
+#include "engine/framework/model_spec/package.h"
 #include "engine/framework/io/json.h"
 
 #include <stdexcept>
@@ -26,9 +26,9 @@ engine::modules::WhisperEmbeddingConfig parse_whisper_config(const json::Value &
     return config;
 }
 
-Vevo2ARConfig parse_ar_config(const assets::ResourceBundle & resources) {
+Vevo2Qwen2ARConfig parse_ar_config(const assets::ResourceBundle & resources) {
     const auto root = resources.parse_json("ar_config");
-    Vevo2ARConfig config;
+    Vevo2Qwen2ARConfig config;
     config.model_type = json::require_string(root, "model_type");
     config.vocab_size = json::require_i64(root, "vocab_size");
     config.hidden_size = json::require_i64(root, "hidden_size");
@@ -213,13 +213,9 @@ std::shared_ptr<const Vevo2Assets> load_vevo2_assets(
     const std::filesystem::path & model_path,
     const std::optional<std::filesystem::path> & whisper_model_path) {
     Vevo2Assets assets;
-    assets.resources = assets::load_resource_bundle_from_package_spec(
+    assets.resources = engine::model_spec::load_resource_bundle(
         model_path,
-        assets::default_model_package_spec_path("vevo2"));
-    if (whisper_model_path.has_value()) {
-        assets.resources.add_file("whisper_config", *whisper_model_path / "config.json");
-        assets.resources.add_tensor_source("whisper_weights", *whisper_model_path / "model.safetensors");
-    }
+        engine::model_spec::default_spec_path("vevo2"));
     assets.config = parse_config(assets.resources);
     assets.content_style_tokenizer_weights = assets.resources.open_tensor_source("content_style_tokenizer_weights");
     assets.prosody_tokenizer_weights = assets.resources.open_tensor_source("prosody_tokenizer_weights");
@@ -227,7 +223,12 @@ std::shared_ptr<const Vevo2Assets> load_vevo2_assets(
     assets.fm_weights = assets.resources.open_tensor_source("fm_weights");
     assets.fm_whisper_stats = assets.resources.open_tensor_source("fm_whisper_stats");
     assets.vocoder_weights_0 = assets.resources.open_tensor_source("vocoder_weights_0");
-    assets.whisper_weights = assets.resources.open_tensor_source("whisper_weights");
+    if (whisper_model_path.has_value()) {
+        assets.config.whisper = parse_whisper_config(json::parse_file(*whisper_model_path / "config.json"));
+        assets.whisper_weights = engine::assets::open_tensor_source(*whisper_model_path / "model.safetensors");
+    } else {
+        assets.whisper_weights = assets.resources.open_tensor_source("whisper_weights");
+    }
     return std::make_shared<Vevo2Assets>(std::move(assets));
 }
 

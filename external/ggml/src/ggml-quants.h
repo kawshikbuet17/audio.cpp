@@ -34,6 +34,7 @@ GGML_API void quantize_row_q8_K_ref(const float * GGML_RESTRICT x, block_q8_K * 
 
 GGML_API void quantize_row_tq1_0_ref(const float * GGML_RESTRICT x, block_tq1_0 * GGML_RESTRICT y, int64_t k);
 GGML_API void quantize_row_tq2_0_ref(const float * GGML_RESTRICT x, block_tq2_0 * GGML_RESTRICT y, int64_t k);
+GGML_API void quantize_row_tq2_1_ref(const float * GGML_RESTRICT x, block_tq2_1 * GGML_RESTRICT y, int64_t k);
 
 GGML_API void quantize_row_iq3_xxs_ref(const float * GGML_RESTRICT x, block_iq3_xxs * GGML_RESTRICT y, int64_t k);
 GGML_API void quantize_row_iq4_nl_ref (const float * GGML_RESTRICT x, block_iq4_nl  * GGML_RESTRICT y, int64_t k);
@@ -62,6 +63,7 @@ GGML_API void dequantize_row_q8_K(const block_q8_K * GGML_RESTRICT x, float * GG
 
 GGML_API void dequantize_row_tq1_0(const block_tq1_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_tq2_0(const block_tq2_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_tq2_1(const block_tq2_1 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 
 GGML_API void dequantize_row_iq2_xxs(const block_iq2_xxs * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq2_xs (const block_iq2_xs  * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
@@ -86,6 +88,7 @@ GGML_API size_t quantize_iq3_s  (const float * GGML_RESTRICT src, void * GGML_RE
 
 GGML_API size_t quantize_tq1_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 GGML_API size_t quantize_tq2_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+GGML_API size_t quantize_tq2_1(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 
 GGML_API size_t quantize_q2_K(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 GGML_API size_t quantize_q3_K(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
@@ -101,6 +104,36 @@ GGML_API size_t quantize_q8_0(const float * GGML_RESTRICT src, void * GGML_RESTR
 
 GGML_API size_t quantize_mxfp4(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 GGML_API size_t quantize_nvfp4(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// GGML_TYPE_I8_S / GGML_TYPE_I2_S conversions.
+//
+// These are whole-tensor, not per-row: both types carry a single F32 scale for
+// the entire tensor, stored immediately after the payload (see
+// ggml_type_extra_bytes), so `n` is ggml_nelements() and a row pointer alone
+// cannot locate the scale. That is also why the two traits entries leave
+// .to_float / .from_float_ref NULL instead of pointing here, and why
+// ggml_quantize_chunk does not list these types -- its
+// `result == nrows * row_size` invariant cannot hold for a per-tensor scale.
+//
+// The from_float direction returns the number of bytes written, payload plus
+// the padded scale.
+GGML_API void   ggml_i8_s_to_float  (const void  * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t n);
+GGML_API size_t ggml_i8_s_from_float(const float * GGML_RESTRICT x, void  * GGML_RESTRICT y, int64_t n);
+GGML_API void   ggml_i2_s_to_float  (const void  * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t n);
+GGML_API size_t ggml_i2_s_from_float(const float * GGML_RESTRICT x, void  * GGML_RESTRICT y, int64_t n);
+
+// Activation quantizer for the I2_S matmul: one row in, int8 payload out, with
+// the scale and the row's int8 sum handed back out of band.
+//
+// Out of band because neither fits the in-band convention above. The scale is
+// per row here, not per tensor, since a language model activation row is a
+// single token and its dynamic range has nothing to do with its neighbours'.
+// The sum is needed because I2_S stores the ternary values as the codes
+// {0, 1, 2} rather than {-1, 0, +1}: an integer dot against the codes gives
+// sum(w*q) + sum(q), so the row sum has to be subtracted back out. Computing it
+// here costs nothing -- the values are already in registers.
+GGML_API void ggml_i8_s_quantize_act(const float * GGML_RESTRICT x, int8_t * GGML_RESTRICT q, int64_t n,
+                                     float * GGML_RESTRICT scale, int32_t * GGML_RESTRICT sum);
 
 GGML_API void iq2xs_init_impl(enum ggml_type type);
 GGML_API void iq2xs_free_impl(enum ggml_type type);

@@ -10,7 +10,7 @@ spec in `audiocpp.model_spec.*` metadata, so a standalone GGUF does not depend o
 `model_specs` directory or on the binary having that family compiled into its spec
 catalog.
 
-Runtime resolution is deterministic:
+Package/resource resolution is deterministic:
 
 ```text
 explicit --model-spec-override
@@ -25,6 +25,15 @@ compiled catalog (AUDIOCPP_DEPLOYMENT_BUILD=ON)
 external model_specs/<family>.json discovery
 ```
 
+Option validation, capabilities, and model-specific CLI help use a separate
+contract lookup order: explicit override, local `model_specs/<family>.json`
+discovered from the working directory and its parents, compiled deployment
+catalog, then the embedded GGUF spec. This allows contract updates without
+redistributing weights; package/resource resolution above is unchanged.
+Use external specs compatible with the installed runtime, not an arbitrary newer
+`main` revision. Legacy option aliases must remain supported. With `--log`,
+`runtime.model.contract_spec` identifies the selected contract.
+
 An explicit override is useful for testing a modified layout without rebuilding or
 reconverting:
 
@@ -37,6 +46,188 @@ The override may also be a directory containing `<family>.json`. The server supp
 the same command-line option and a `model_spec_override` field either at the top level
 or inside an individual model entry. A per-model field takes precedence over the
 server-wide value.
+
+Use `--model-spec-override embedded` (server config: `"model_spec_override":
+"embedded"`) to use the selected GGUF's embedded spec instead of external or
+compiled contracts. This requires a schema-v1 embedded contract; missing or legacy
+contracts fail without fallback. `--log` reports the selection as
+`runtime.model.contract_spec @gguf/<family>.json`. To select a local file or
+directory literally named `embedded`, use `./embedded` or its absolute path.
+
+## Support And Test Status
+
+AuK Base and AuK-Flash use separate GGUFs for the generator, Qwen conditioner,
+and VAE, plus config and tokenizer sidecars. F16 and Q8_0 components have smoke
+coverage, but full Python parity was measured only for the earlier combined
+GGUF with FP32 inference. See [AuK](models/auk.md) for CLI usage.
+
+Status labels:
+
+| Label | Meaning |
+|---|---|
+| `Done` | Package-spec refactor is in place for this family. |
+| `No` | Package-spec refactor is not done, or the tested format is not usable. |
+| `Skip (...)` | Package-spec refactor is intentionally skipped. |
+| `Pass` | Covered by the path-test matrix with acceptable output. |
+| `Pass (TTS + clone)` | Both no-reference TTS and reference-audio voice cloning run successfully. |
+| `Pass (drift)` | Loads and runs, with known acceptable output drift. |
+| `Pass (bit-identical)` | Loads and runs, reproducing the F32/F16 reference timestamps exactly (0-sample boundary diff). |
+| `Pass (ASR match, drift)` | TTS output has similarity/frame drift but ASR transcript remains usable. |
+| `No (...)` | Known unsupported, failing, or too much output drift. |
+| `---` | Not tested in the current GGUF path-test matrix. |
+
+| Family | Package-spec refactor | Safetensors tested after refactor | `orig` GGUF tested | 16-bit GGUF tested | `q8_0` GGUF tested |
+|---|---|---|---|---|---|
+| `ace_step` | Done | Pass | --- | Pass (drift) | No (planner sampling can fail) |
+| `apollo` | Done | --- | Pass (drift) | --- | --- |
+| `ast_audioset` | Done | --- | Pass (F32) | --- | --- |
+| `audio_flamingo` | Done | Pass | Pass | --- | --- |
+| `bs_roformer` | Done | Pass | --- | --- | Pass |
+| `canary_asr` | Done | Pass | Pass | --- | Pass |
+| `ced` | Done | --- | Pass (F32; Tiny/Mini/Small/Base) | --- | --- |
+| `chatterbox` | Done | Pass | --- | Pass (ASR match, drift) | Pass (ASR match, drift) |
+| `citrinet_asr` | Done | Pass | --- | --- | Pass |
+| `cohere_asr` | Done | Pass | Pass | --- | Pass (drift) |
+| `crisperwhisper` | Done | Pass | Pass | --- | Pass (drift) |
+| `firered_vad` | Done | --- | Pass (F32; VAD + Stream-VAD) | --- | --- |
+| `fish_audio` | Done | Pass | --- | Pass | Pass |
+| `fun_asr_nano` | Done | Pass | --- | Pass | Pass |
+| `gigaam_asr` | Done | --- | Pass | Pass | --- |
+| `glm_tts` | Done | Pass (TTS + clone) | --- | --- | Pass (ASR match, drift) |
+| `gradium_phonon` | Done | Pass | Pass (BF16 source) | --- | Pass (drift) |
+| `heartmula` | Done | Pass | --- | Pass (drift) | Pass (drift) |
+| `higgs_audio_stt` | Done | Pass | --- | Pass | Pass |
+| `higgs_audio_tts` | Done | Pass | --- | Pass | Pass |
+| `htdemucs` | Done | Pass | --- | Pass | Pass (drift) |
+| `htdemucs_6stems` | Done | Pass | --- | Pass | Pass (drift) |
+| `hviske_asr` | Done | Pass | --- | --- | Pass |
+| `hviske_asr_v6` | Done | --- | --- | Pass (BF16) | Pass |
+| `index_tts2` | Done (v2 + v2.5 variant) | Pass | Pass | Pass (drift) | Pass (ASR match, drift) |
+| `inflect_v2` | Done | Pass | Pass | --- | --- |
+| `irodori_tts` | Done | Pass | --- | Pass | Pass (ASR match, drift) |
+| `kitten_tts` | Done | --- | Pass (drift) | --- | --- |
+| `kroko_asr` | Done | Pass | --- | --- | Pass |
+| `kugelaudio` | Done | --- | --- | Pass (ASR match, drift) | --- |
+| `latentsync` | Done | --- | Pass (short CUDA parity, Vulkan smoke) | Pass (F16; full CUDA video) | Pass (Q8/F16; full CUDA video) |
+| `magpie_tts` | Done | --- | Pass | --- | Pass |
+| `marblenet_vad` | Bundled (tiny model) | Pass | --- | --- | --- |
+| `maya1` | Done | --- | Pass | --- | --- |
+| `meanvc2` | Done | --- | --- | Pass | --- |
+| `mel_band_roformer` | Done | Pass | --- | Pass (drift) | Pass (drift) |
+| `micro_wake_word` | Done | --- | Pass (F32) | --- | --- |
+| `ming3_audio` | Done | --- | Pass (BF16; CUDA ASR, TTS, clone, S2S; Vulkan ASR + TTS + clone; drift) | Pass (BF16) | Pass (expert-only; full CUDA audio understanding, resident + offload; drift) |
+| `ming3_tts` | Done | --- | Pass (BF16; TTS + clone, drift) | Pass (BF16; TTS + clone, drift) | Pass (TTS + clone) |
+| `miocodec` | Done | Pass | Pass | Pass (drift) | Pass (drift) |
+| `miotts` | Done | Pass | Pass | Pass (drift) | Pass (ASR match, drift) |
+| `mms_forced_aligner` | Done | Pass | --- | Pass | Pass (bit-identical) |
+| `moonshine_asr` | Done | Pass | --- | --- | Pass |
+| `moss_transcribe_diarize` | Done | --- | Pass | --- | Pass |
+| `moss_tts_local` | Done | Pass | --- | Pass | Pass (ASR match, drift) |
+| `moss_tts_nano` | Done | Pass | --- | Pass | Pass (ASR match, drift) |
+| `mossformer2` | Done | --- | Pass (F32) | --- | --- |
+| `muscriptor` | Done | Pass | Pass | --- | --- |
+| `nemotron_3_diar` | Done | --- | Pass | --- | --- |
+| `nemotron_asr` | Done | Pass | --- | Pass | Pass (minor filler drift) |
+| `neutts` | Done | Pass | --- | Pass | --- |
+| `omnivoice` | Done | Pass | --- | Pass (drift) | Pass (drift) |
+| `open_wake_word` | Done | --- | Pass (F32) | --- | --- |
+| `outetts` | Done | Pass (TTS + clone) | --- | --- | Pass (TTS + clone) |
+| `owsm` | Done | --- | Pass | --- | Pass (drift) |
+| `parakeet_tdt` | Done | Pass | Pass | Pass | Pass |
+| `personaplex` | Done | --- | --- | --- | Pass |
+| `piper_tts` | Done | Pass | Pass | --- | --- |
+| `plapre` | Done | --- | Pass (F32; TTS + clone) | Pass (BF16; TTS + clone) | --- |
+| `pocket_tts` | Done | Pass | --- | Pass | Pass (drift) |
+| `pulsevad` | Done | Pass | Pass | --- | --- |
+| `qwen3_asr` | Done | Pass | --- | Pass | Pass |
+| `qwen3_forced_aligner` | Done | Pass | --- | Pass | Pass |
+| `qwen3_tts` base | Done | Pass | Pass | Pass (ASR match, drift) | Pass (ASR match, drift) |
+| `qwen3_tts` custom voice | Done | Pass | --- | Pass (ASR match, drift) | Pass (ASR match, drift) |
+| `qwen3_tts` voice design | Done | Pass | --- | Pass (ASR match, drift) | Pass (ASR match, drift) |
+| `reuse` | Done | --- | Pass (drift) | Pass (drift) | Pass (drift) |
+| `rvc` | Done | --- | --- | Pass | --- |
+| `sam_audio` | Done | --- | Pass | --- | --- |
+| `samsone` | Done | --- | --- | Pass | Pass (drift) |
+| `seed_vc` | Done | Pass | --- | Pass (drift) | Pass (drift) |
+| `sherpa_kws` | Done | --- | Pass (F32) | --- | --- |
+| `sidon` | Done | --- | Pass | --- | --- |
+| `silero_vad` | Skip (tiny model) | --- | --- | --- | --- |
+| `smart_turn` | Done | F32 | --- | --- | --- |
+| `soprano_tts` | Done | Pass | --- | Pass | Pass (drift) |
+| `sopro_tts` | Done | Pass | --- | Pass | Pass |
+| `sortformer_diar` | Done | Pass | --- | Pass | Pass |
+| `sortformer_diar_v2` | Done | Pass | Pass | Pass (mixed; output-turn criteria) | No (speaker drift) |
+| `stable_audio` | Done | Pass | --- | Pass (drift) | Pass (drift) |
+| `supertonic` | Done | Pass | Pass | Pass | No (Q8 blockers unresolved) |
+| `tf_gridnet` | Done | --- | Pass (F32) | --- | --- |
+| `tone_color_vc` | Done | --- | Pass (F32) | Pass (F16, drift) | No (drift) |
+| `universr` | Done | --- | Pass | --- | --- |
+| `vevo2` | Done | Pass | Pass | Pass (drift) | No (mixed route drift; speech ASR match) |
+| `vibevoice` | Done | Pass | --- | Pass | Pass (drift) |
+| `vibevoice_asr` | Done | Pass | --- | Pass | Pass |
+| `vibevoice_asr_streaming` | Done | --- | --- | Pass | Pass |
+| `voxcpm2` | Done | Pass | Pass | Pass (ASR match, drift) | Pass (ASR match, drift) |
+| `voxtral_realtime` | Done | Pass | --- | Pass | Pass |
+| `voxtral_tts` | Done | --- | --- | Pass (BF16) | Pass |
+| `whistle_asr` | Done | --- | Pass (F32) | --- | --- |
+
+Additional lower-bit checks:
+
+| Family | Format | Tested |
+|---|---|---|
+| `cohere_asr` | `q4_0` | Pass (drift) |
+| `meanvc2` | `q4_k` | Pass |
+| `ming3_audio` | `q4_k` | Pass (Q4_K experts, Q8_0 text head; CUDA resident + offload, long audio + chunked TTS; Vulkan ASR + TTS + clone) |
+| `moss_transcribe_diarize` | `q4_k` | No (long-audio segmentation/timestamp drift) |
+| `owsm` | `q4_k` | Pass (Small and Medium; transcript and timestamp drift) |
+| `personaplex` | `q4_k` | Pass |
+| `vibevoice_asr_streaming` | `q4_k` | Pass (quick CUDA check; transcript stays usable and matches the BF16 wording class) |
+| `voxtral_realtime` | `q4_k` | Pass (quick CUDA check; transcripts match Q8 except one capitalization-only difference) |
+
+Q8 packaging notes:
+
+- Apollo and UniverSR `orig` packages preserve F32 weights. See the
+  [Apollo](models/apollo.md) and [UniverSR](models/universr.md) usage guides.
+- `chatterbox` Q8 is intentionally mixed type. Graph-sensitive scalar, norm,
+  bias, and side tensors stay in non-Q8 types while matmul-compatible weights
+  are quantized.
+- `pocket_tts` Q8 keeps the four `flow_lm.flow_net.time_embed.*.mlp.{0,2}.weight`
+  tensors in Q8 in addition to the default converter selection. `conditioner.embed`,
+  `cond_embed`, and Mimi conv tensors are not forced to Q8 because tested outputs
+  drifted or the current conv path casts quantized conv weights back to F32.
+- `gradium_phonon` Q8 quantizes only the flow transformer linears. The flow net,
+  conditioner tables and input/EOS projections stay BF16 and Mimi stays F32; see the
+  [Gradium Phonon](models/gradium_phonon.md) conversion commands.
+- `dots_tts` Q8 keeps the vocoder in 16-bit storage and folds vocoder
+  weight-norm conv tensors at conversion time. Use
+  `--keep-type 'vocoder/*=f16' --fold-weight-norm 'vocoder/*'` for both SOAR
+  and MeanFlow Q8 conversion so the flow/LLM path is quantized while the
+  vocoder stays in the tested dtype with direct conv weights.
+- `qwen3_tts` Q8 should keep speaker-sensitive components in their original
+  16-bit type. The tested Base Q8 package quantizes the talker transformer and
+  projections, talker code-predictor heads, and speech-tokenizer encoder/decoder
+  projection or linear weights, while leaving the speaker encoder, lookup, and
+  codebook-sensitive tensors unquantized. Quantizing those speaker-side tensors
+  can produce long-form quality problems such as large silence.
+- `supertonic` F16 is intentionally mixed type. Keep duration predictor,
+  vocoder, non-weight tensors, embeddings, codebook tensors, and norm tensors in
+  F32; convert only compatible projection weights to F16. Supertonic Q8 is not
+  currently supported: broader Q8 packages still hit CUDA Q8 copy/layout
+  blockers in text/vector graph paths, so the Q8 blocker is not fully solved.
+- `voxtral_realtime` also has a tested `q4_k` package. In a quick CUDA path
+  check it was smaller and faster than Q8_0, while transcript output matched
+  Q8_0 except for one capitalization-only difference.
+- `vibevoice_asr_streaming` also has a tested `q4_k` package. In a quick CUDA
+  check, BF16 and Q4_K produced the same transcript wording on the validation
+  clip; Q8_0 produced the same sentence with minor wording drift. On the 1.5B
+  packages, scored WER over the four `assets/asr_validation/librispeech` clips
+  degrades in quantization order on both backends -- CUDA 4.35/5.80/7.25% and
+  CPU 4.35/4.35/5.80% for BF16/Q8_0/Q4_K -- but that whole spread is two
+  substitutions out of 69 words, so treat the ordering as unsurprising rather
+  than as measured. Note that the quantized packages score differently per
+  backend because CPU and CUDA quantize activations differently upstream (Q8_K
+  or Q8_0 against Q8_1); BF16 quantizes none and matches exactly. Quote a WER
+  for a quantized package with its backend.
 
 ## Build The Converter
 
@@ -73,6 +264,9 @@ audiocpp_gguf --input [namespace=]<weights> [--input namespace=<weights> ...] \
   [--model-spec <json-or-directory>] \
   [--root <model-dir>] \
   [--sidecar <source>=<destination>] \
+  [--bnb-nf4-type q8_0] \
+  [--exclude-prefix <logical-prefix>] \
+  [--keep-type <tensor-prefix>*=<type>] \
   [--overwrite] \
   [--no-sidecars] \
   [--allow-missing-model-spec]
@@ -121,6 +315,35 @@ audiocpp_gguf \
   --root /path/to/model \
   --output /path/to/model-gguf/model.gguf \
   --type f16 \
+  --overwrite
+```
+
+## Convert BitsAndBytes NF4 Sources
+
+Some upstream packages store tensors as BitsAndBytes NF4 data in U8 safetensors plus
+helper tensors. Use `--bnb-nf4-type q8_0` for these sources. The converter decodes the
+NF4 payload, uses the quant-state shape for GGUF metadata, re-quantizes the decoded
+weights to GGML Q8_0, and skips the BNB helper tensors from the output.
+
+`--keep-type` only overrides the GGUF output type for normal tensors. It does not decode
+raw BNB NF4 U8 tensors by itself.
+
+Use `--exclude-prefix <logical-prefix>` to omit a tensor subtree that the audio.cpp model
+does not load, for example an unused vision tower in a shared language-model checkpoint.
+
+```bash
+audiocpp_gguf \
+  --input audio=models/Dramabox/dramabox-audio-components.safetensors \
+  --input dit=models/Dramabox/dramabox-dit-v1.safetensors \
+  --input gemma=models/gemma-3-12b-it-bnb-4bit/model.safetensors.index.json \
+  --input silence=models/Dramabox/assets/silence_latent_frame.safetensors \
+  --root build/debug/dramabox_gguf_sidecars_spec \
+  --output models/Dramabox-GGUF/dramabox-q8_0.gguf \
+  --type q8_0 \
+  --bnb-nf4-type q8_0 \
+  --exclude-prefix gemma/vision_tower \
+  --family dramabox \
+  --model-spec model_specs/dramabox.json \
   --overwrite
 ```
 
@@ -193,11 +416,17 @@ If the GGUF embeds all required sidecars, it can be passed directly as `--model`
 audiocpp_cli --task asr --family qwen3_asr --model /path/to/model-gguf/model.gguf --backend cuda --audio speech.wav
 ```
 
-A directory containing `model.gguf` is also accepted by supported package specs:
+A directory is also accepted by supported package specs. It resolves to `model.gguf` when that
+name is present, otherwise to the single `*.gguf` inside it — so a downloaded package directory
+works under its release name without renaming anything:
 
 ```bash
 audiocpp_cli --task tts --family qwen3_tts --model /path/to/model-gguf --backend cuda --text "Hello." --out out.wav
+audiocpp_cli --task vc --family vevo2 --model models/Vevo2-GGUF --backend cuda --audio source.wav --voice-ref target.wav --out converted.wav
 ```
+
+A directory holding several GGUFs and no `model.gguf` is ambiguous and is rejected with the
+candidates listed; pass one of them directly as `--model`, or keep a single GGUF per directory.
 
 Compatibility summary:
 
@@ -239,54 +468,5 @@ Quantized GGUF support is model- and route-specific. A model may load successful
 still drift in length, waveform similarity, or recognized text, so validate the exact
 route you plan to ship.
 
-## Support And Test Status
-
-Status labels:
-
-| Label | Meaning |
-|---|---|
-| `Done` | Package-spec refactor is in place for this family. |
-| `No` | Package-spec refactor is not done, or the tested format is not usable. |
-| `Skip (...)` | Package-spec refactor is intentionally skipped. |
-| `Pass` | Covered by the path-test matrix with acceptable output. |
-| `Pass (TTS + clone)` | Both no-reference TTS and reference-audio voice cloning run successfully. |
-| `Pass (drift)` | Loads and runs, with known acceptable output drift. |
-| `No (...)` | Known unsupported, failing, or too much output drift. |
-| `---` | Not tested in the current GGUF path-test matrix. |
-
-| Family | Package-spec refactor | Safetensors tested after refactor | `orig` GGUF tested | 16-bit GGUF tested | `q8_0` GGUF tested |
-|---|---|---|---|---|---|
-| `ace_step` | No | --- | --- | --- | --- |
-| `chatterbox` | No | --- | --- | --- | --- |
-| `citrinet_asr` | Done | Pass | --- | --- | Pass |
-| `heartmula` | No | --- | --- | --- | --- |
-| `higgs_audio_stt` | Done | Pass | --- | Pass | Pass |
-| `htdemucs` | Done | Pass | --- | Pass | Pass (drift) |
-| `hviske_asr` | Done | Pass | --- | --- | Pass |
-| `index_tts2` | Done | Pass | Pass | Pass (drift) | No (similarity drift, frame drift, text minor drift) |
-| `irodori_tts` | Done | Pass | --- | Pass | Pass (drift) |
-| `marblenet_vad` | Skip (tiny model) | --- | --- | --- | --- |
-| `mel_band_roformer` | Done | Pass | --- | Pass (drift) | Pass (drift) |
-| `miocodec` | Done | Pass | Pass | Pass (drift) | Pass (drift) |
-| `miotts` | Done | Pass | Pass | Pass (drift) | No (similarity drift, frame drift) |
-| `moss_tts_local` | Done | Pass | --- | Pass | No (similarity drift, frame drift, text minor drift) |
-| `moss_tts_nano` | Done | Pass | --- | Pass | No (similarity drift, frame drift, text large drift) |
-| `nemotron_asr` | Done | Pass | --- | Pass | Pass (minor filler drift) |
-| `omnivoice` | Done | Pass | --- | No (runtime assert, no audio) | No (runtime assert, no audio) |
-| `outetts` | Done | Pass (TTS + clone) | --- | --- | Pass (TTS + clone) |
-| `pocket_tts` | No | --- | --- | --- | --- |
-| `qwen3_asr` | Done | Pass | --- | Pass | Pass |
-| `qwen3_forced_aligner` | Done | Pass | --- | Pass | Pass |
-| `qwen3_tts` base | Done | Pass | Pass | No (similarity drift, frame drift, text minor drift) | No (similarity drift, frame drift, text minor drift) |
-| `qwen3_tts` custom voice | Done | Pass | --- | Pass (drift) | No (similarity drift, frame drift, text minor drift) |
-| `qwen3_tts` voice design | Done | Pass | --- | Pass (drift) | No (similarity drift, frame drift, text minor drift) |
-| `seed_vc` | Done | Pass | --- | Pass (drift) | Pass (drift) |
-| `silero_vad` | Skip (tiny model) | --- | --- | --- | --- |
-| `sortformer_diar` | No | --- | --- | --- | --- |
-| `stable_audio` | Done | Pass | --- | Pass (drift) | Pass (drift) |
-| `supertonic` | Done | Pass | Pass | --- | No (unsupported weight dtype) |
-| `vevo2` | Done | Pass | Pass | Pass (drift) | No (similarity drift, frame drift) |
-| `vibevoice` | No | --- | --- | --- | --- |
-| `vibevoice_asr` | Done | Pass | --- | Pass | Pass |
-| `voxcpm2` | Done | Pass | Pass | No (clone similarity drift, frame drift) | No (similarity drift, frame drift) |
-| `voxtral_realtime` | Done | Pass | --- | Pass | Pass |
+For measured 16-bit vs Q8 speed and peak VRAM results, see
+[GGUF Q8 performance](reports/gguf_q8_performance.md).

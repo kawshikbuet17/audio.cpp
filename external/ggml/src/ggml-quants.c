@@ -2303,6 +2303,48 @@ void quantize_row_tq1_0_ref(const float * GGML_RESTRICT x, block_tq1_0 * GGML_RE
     }
 }
 
+void quantize_row_tq2_1_ref(const float * GGML_RESTRICT x, block_tq2_1 * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_K == 0);
+    for (int64_t i = 0; i < k/QK_K; ++i) {
+        for (int g = 0; g < 2; ++g) {
+            const float * v = x + i*QK_K + g*128;
+            float amax = 0.0f;
+            for (int j = 0; j < 128; ++j) {
+                amax = MAX(amax, fabsf(v[j]));
+            }
+            y[i].d[g] = GGML_FP32_TO_FP16(amax);
+            const float id = amax ? 1.0f/amax : 0.0f;
+            for (int m = 0; m < 32; ++m) {
+                uint8_t q = 0;
+                for (int l = 0; l < 4; ++l) {
+                    q |= (uint8_t) (lroundf(v[l*32 + m]*id) + 1) << (2*l);
+                }
+                y[i].qs[g*32 + m] = q;
+            }
+        }
+    }
+}
+
+void dequantize_row_tq2_1(const block_tq2_1 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_K == 0);
+    for (int64_t i = 0; i < k/QK_K; ++i) {
+        for (int g = 0; g < 2; ++g) {
+            const float d = GGML_FP16_TO_FP32(x[i].d[g]);
+            for (int l = 0; l < 4; ++l) {
+                for (int m = 0; m < 32; ++m) {
+                    *y++ = d * (((x[i].qs[g*32 + m] >> (2*l)) & 3) - 1);
+                }
+            }
+        }
+    }
+}
+
+size_t quantize_tq2_1(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
+    GGML_UNUSED(quant_weights);
+    quantize_row_tq2_1_ref(src, dst, nrow*n_per_row);
+    return nrow * ggml_row_size(GGML_TYPE_TQ2_1, n_per_row);
+}
+
 void quantize_row_tq2_0_ref(const float * GGML_RESTRICT x, block_tq2_0 * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
@@ -2405,6 +2447,163 @@ void dequantize_row_tq2_0(const block_tq2_0 * GGML_RESTRICT x, float * GGML_REST
             }
         }
     }
+}
+
+// ====================== GGML_TYPE_I8_S / GGML_TYPE_I2_S
+//
+// Unlike every block-quantized type above, these two carry a single F32 scale
+// for the whole tensor rather than one per block, stored immediately after the
+// payload (ggml_type_extra_bytes reserves the room). The four functions below
+// are therefore whole-tensor: `n` is ggml_nelements(), and the scale lives at
+// byte offset ggml_row_size(type, n) rounded down to the payload end.
+//
+// The scale is a multiplier in both directions -- real = q * scale -- matching
+// the `d` of every other ggml quant type. VibeASR's own fork uses a multiplier
+// for weights but stores the reciprocal for op-produced activations; the two
+// are reconciled by a division deep inside each kernel. Only the multiplier
+// convention is used here. Activation scales never reach a file, so this
+// changes nothing about how an existing GGUF is read.
+
+#define I2_S_GROUP 128  // ternary values per packed group
+#define I2_S_BYTES 32   // bytes those 128 values occupy
+
+// Scale slot: the F32 sits directly after the payload. Kept as helpers so the
+// offset arithmetic is not repeated in four places. The payload size is the
+// only difference between the two types -- I8_S is one byte per value, I2_S
+// packs 128 values into 32 bytes.
+static inline size_t i8_s_payload_bytes(int64_t n) { return (size_t)n; }
+static inline size_t i2_s_payload_bytes(int64_t n) { return (size_t)(n / I2_S_GROUP) * I2_S_BYTES; }
+
+static inline float       * i8_s_scale_ptr      (void       * x, int64_t n) { return (float       *)((char       *)x + i8_s_payload_bytes(n)); }
+static inline const float * i8_s_scale_ptr_const(const void * x, int64_t n) { return (const float *)((const char *)x + i8_s_payload_bytes(n)); }
+static inline float       * i2_s_scale_ptr      (void       * x, int64_t n) { return (float       *)((char       *)x + i2_s_payload_bytes(n)); }
+static inline const float * i2_s_scale_ptr_const(const void * x, int64_t n) { return (const float *)((const char *)x + i2_s_payload_bytes(n)); }
+
+void ggml_i8_s_to_float(const void * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t n) {
+    const int8_t * q = (const int8_t *)x;
+    const float    d = *i8_s_scale_ptr_const(x, n);
+
+    for (int64_t i = 0; i < n; ++i) {
+        y[i] = (float)q[i] * d;
+    }
+}
+
+size_t ggml_i8_s_from_float(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t n) {
+    int8_t * q = (int8_t *)y;
+
+    float amax = 0.0f;
+    for (int64_t i = 0; i < n; ++i) {
+        const float a = fabsf(x[i]);
+        if (a > amax) amax = a;
+    }
+
+    // Symmetric range: -127..127 rather than -128..127, so that negating a
+    // tensor is exactly representable and the kernels can widen to int16
+    // without a special case for the one asymmetric value.
+    const float d    = amax / 127.0f;
+    const float id   = d != 0.0f ? 1.0f / d : 0.0f;
+
+    for (int64_t i = 0; i < n; ++i) {
+        int v = nearest_int(x[i] * id);
+        if (v >  127) v =  127;
+        if (v < -127) v = -127;
+        q[i] = (int8_t)v;
+    }
+
+    *i8_s_scale_ptr(y, n) = d;
+
+    return i8_s_payload_bytes(n) + ggml_type_extra_bytes(GGML_TYPE_I8_S);
+}
+
+// Bit pair -> ternary value. Codes 1 and 3 both mean zero; the packer only ever
+// emits 1, but 3 is accepted so a stray pattern dequantizes to 0 instead of
+// reading out of bounds.
+static const float i2_s_map[4] = { -1.0f, 0.0f, +1.0f, 0.0f };
+
+void ggml_i2_s_to_float(const void * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t n) {
+    assert(n % I2_S_GROUP == 0);
+
+    const uint8_t * q = (const uint8_t *)x;
+    const float     d = *i2_s_scale_ptr_const(x, n);
+
+    for (int64_t base = 0; base < n; base += I2_S_GROUP) {
+        // Byte gp holds the values at base+gp, base+32+gp, base+64+gp and
+        // base+96+gp, in bit pairs 6, 4, 2, 0 -- strided, not consecutive, so
+        // that a SIMD load of 32 bytes yields 4 aligned lanes of 32 values.
+        for (int gp = 0; gp < I2_S_BYTES; ++gp) {
+            const uint8_t b = q[gp];
+
+            y[base +  0 + gp] = d * i2_s_map[(b >> 6) & 3];
+            y[base + 32 + gp] = d * i2_s_map[(b >> 4) & 3];
+            y[base + 64 + gp] = d * i2_s_map[(b >> 2) & 3];
+            y[base + 96 + gp] = d * i2_s_map[(b >> 0) & 3];
+        }
+
+        q += I2_S_BYTES;
+    }
+}
+
+size_t ggml_i2_s_from_float(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t n) {
+    assert(n % I2_S_GROUP == 0);
+
+    uint8_t * q = (uint8_t *)y;
+
+    float amax = 0.0f;
+    for (int64_t i = 0; i < n; ++i) {
+        const float a = fabsf(x[i]);
+        if (a > amax) amax = a;
+    }
+
+    // The type stores {-1, 0, +1} * d, so d is the absmax and a ternary input
+    // round-trips exactly. Non-ternary input is rounded to the nearest of the
+    // three representable values, which is all this type can express.
+    const float d  = amax;
+    const float id = d != 0.0f ? 1.0f / d : 0.0f;
+
+    memset(q, 0, i2_s_payload_bytes(n));
+
+    for (int64_t base = 0; base < n; base += I2_S_GROUP) {
+        for (int j = 0; j < I2_S_GROUP; ++j) {
+            int v = nearest_int(x[base + j] * id);
+            if (v >  1) v =  1;
+            if (v < -1) v = -1;
+
+            const uint8_t code = (uint8_t)(v + 1);  // -1,0,1 -> 0,1,2
+
+            q[j % I2_S_BYTES] |= (uint8_t)(code << (6 - 2*(j / I2_S_BYTES)));
+        }
+
+        q += I2_S_BYTES;
+    }
+
+    *i2_s_scale_ptr(y, n) = d;
+
+    return i2_s_payload_bytes(n) + ggml_type_extra_bytes(GGML_TYPE_I2_S);
+}
+
+void ggml_i8_s_quantize_act(const float * GGML_RESTRICT x, int8_t * GGML_RESTRICT q, int64_t n,
+                            float * GGML_RESTRICT scale, int32_t * GGML_RESTRICT sum) {
+    float amax = 0.0f;
+    for (int64_t i = 0; i < n; ++i) {
+        const float a = fabsf(x[i]);
+        if (a > amax) amax = a;
+    }
+
+    // -127..127 rather than -128..127, as in ggml_i8_s_from_float.
+    const float d  = amax / 127.0f;
+    const float id = d != 0.0f ? 1.0f / d : 0.0f;
+
+    int32_t s = 0;
+    for (int64_t i = 0; i < n; ++i) {
+        int v = nearest_int(x[i] * id);
+        if (v >  127) v =  127;
+        if (v < -127) v = -127;
+        q[i] = (int8_t)v;
+        s   += v;
+    }
+
+    *scale = d;
+    *sum   = s;
 }
 
 // ====================== "True" 2-bit (de)-quantization
@@ -5427,6 +5626,22 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
         case GGML_TYPE_TQ2_0:
             {
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_tq2_0, data, nb);
+            } break;
+        case GGML_TYPE_TQ2_1:
+            {
+                const block_tq2_1 * q = (const block_tq2_1 *) data;
+                for (size_t i = 0; i < nb; ++i) {
+                    if (!validate_fp16(q[i].d[0], i) || !validate_fp16(q[i].d[1], i)) {
+                        return false;
+                    }
+                    for (size_t j = 0; j < sizeof(q[i].qs); ++j) {
+                        for (int shift = 0; shift < 8; shift += 2) {
+                            if (((q[i].qs[j] >> shift) & 3) == 3) {
+                                return false;
+                            }
+                        }
+                    }
+                }
             } break;
         case GGML_TYPE_IQ1_S:
             {

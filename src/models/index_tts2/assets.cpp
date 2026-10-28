@@ -1,6 +1,6 @@
 #include "engine/models/index_tts2/assets.h"
 
-#include "engine/framework/assets/model_package.h"
+#include "engine/framework/model_spec/package.h"
 #include "engine/framework/io/config.h"
 #include "engine/framework/io/json.h"
 #include "engine/framework/io/yaml.h"
@@ -17,13 +17,27 @@ IndexTTS2Config parse_config(const assets::ResourceBundle & resources) {
     const auto document = resources.parse_flattened_yaml("config");
     IndexTTS2Config config;
     config.version = yaml::optional_string(document, "version", config.version);
-    config.dataset_sample_rate = static_cast<int>(yaml::require_i64(document, "dataset.sample_rate"));
+    // The official IndexTTS-2.5 config has no dataset section; these values are
+    // parsed for compatibility but not used at inference time.
+    if (const auto value = yaml::optional_int(document, "dataset.sample_rate")) {
+        config.dataset_sample_rate = *value;
+    }
     config.dataset_squeeze = yaml::optional_bool(document, "dataset.squeeze", config.dataset_squeeze);
-    config.dataset_mel_sample_rate = static_cast<int>(yaml::require_i64(document, "dataset.mel.sample_rate"));
-    config.dataset_mel_n_fft = yaml::require_i64(document, "dataset.mel.n_fft");
-    config.dataset_mel_hop_length = yaml::require_i64(document, "dataset.mel.hop_length");
-    config.dataset_mel_win_length = yaml::require_i64(document, "dataset.mel.win_length");
-    config.dataset_mel_n_mels = yaml::require_i64(document, "dataset.mel.n_mels");
+    if (const auto value = yaml::optional_int(document, "dataset.mel.sample_rate")) {
+        config.dataset_mel_sample_rate = *value;
+    }
+    if (const auto value = yaml::optional_int(document, "dataset.mel.n_fft")) {
+        config.dataset_mel_n_fft = *value;
+    }
+    if (const auto value = yaml::optional_int(document, "dataset.mel.hop_length")) {
+        config.dataset_mel_hop_length = *value;
+    }
+    if (const auto value = yaml::optional_int(document, "dataset.mel.win_length")) {
+        config.dataset_mel_win_length = *value;
+    }
+    if (const auto value = yaml::optional_int(document, "dataset.mel.n_mels")) {
+        config.dataset_mel_n_mels = *value;
+    }
     config.dataset_mel_fmin = yaml::optional_f32(document, "dataset.mel.mel_fmin", config.dataset_mel_fmin);
     config.dataset_mel_normalize = yaml::optional_bool(document, "dataset.mel.normalize", config.dataset_mel_normalize);
 
@@ -154,7 +168,14 @@ void validate_gpt_weights(const IndexTTS2Config & config, const assets::TensorSo
     assets::require_tensor_shape(source, "gpt.h.0.attn.c_proj.weight", {config.gpt.model_dim, config.gpt.model_dim});
     assets::require_tensor_shape(source, "gpt.h.0.mlp.c_fc.weight", {config.gpt.model_dim, config.gpt.model_dim * 4});
     assets::require_tensor_shape(source, "gpt.h.0.mlp.c_proj.weight", {config.gpt.model_dim * 4, config.gpt.model_dim});
-    assets::require_tensor_shape(source, "conditioning_encoder.after_norm.weight", {config.gpt.condition_output_size});
+    if (index_tts2_variant_from_version(config.version) == IndexTTS2Variant::kV2_5) {
+        // v2.5 campplus speaker conditioning: projected CAMPPlus embedding plus
+        // the language embedding table; no conditioning_encoder/speed_emb.
+        assets::require_tensor_shape(source, "spk_emb_proj.weight", {config.gpt.model_dim, config.s2mel.style_dim});
+        assets::require_tensor_shape(source, "lang_embedding.weight", {kIndexTTS2LangEmbeddingRows, config.gpt.model_dim});
+    } else {
+        assets::require_tensor_shape(source, "conditioning_encoder.after_norm.weight", {config.gpt.condition_output_size});
+    }
     assets::require_tensor_shape(source, "emo_conditioning_encoder.after_norm.weight", {config.gpt.emo_condition_output_size});
 }
 
@@ -195,6 +216,11 @@ void validate_semantic_codec_weights(const IndexTTS2Config & config, const asset
     assets::require_tensor_shape(source, "quantizer.quantizers.0.codebook.weight", {config.semantic_codec.codebook_size, config.semantic_codec.codebook_dim});
     assets::require_tensor_shape(source, "encoder.1.weight", {config.semantic_codec.hidden_size, config.semantic_codec.vocos_dim});
     assets::require_tensor_shape(source, "decoder.1.weight", {config.semantic_codec.hidden_size, config.semantic_codec.vocos_dim});
+    if (index_tts2_variant_from_version(config.version) == IndexTTS2Variant::kV2_5) {
+        // v2.5 decodes codes through the full EnhancedCodec path ending in the
+        // 2x nearest upsample and the `up` conv.
+        assets::require_tensor_shape(source, "up.weight", {config.semantic_codec.hidden_size, config.semantic_codec.hidden_size, 3});
+    }
 }
 
 void validate_qwen_weights(const assets::TensorSource & source) {
@@ -219,9 +245,9 @@ void validate_weight_anchors(const IndexTTS2Assets & assets) {
 
 std::shared_ptr<const IndexTTS2Assets> load_index_tts2_assets(const std::filesystem::path & model_path) {
     auto assets = std::make_shared<IndexTTS2Assets>();
-    assets->resources = assets::load_resource_bundle_from_package_spec(
+    assets->resources = engine::model_spec::load_resource_bundle(
         model_path,
-        assets::default_model_package_spec_path("index_tts2"));
+        engine::model_spec::default_spec_path("index_tts2"));
     assets->config = parse_config(assets->resources);
     validate_config(assets->config, assets->resources);
 

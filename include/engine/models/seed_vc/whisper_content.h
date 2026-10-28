@@ -2,13 +2,15 @@
 
 #include "engine/framework/assets/tensor_source.h"
 #include "engine/framework/core/backend.h"
-#include "engine/framework/modules/whisper_embedding.h"
+#include "engine/framework/modules/speech_encoders/whisper_frontend.h"
 
 #include <cstdint>
 #include <memory>
 #include <vector>
 
 namespace engine::models::seed_vc {
+
+std::vector<float> compute_whisper_log_mel(const std::vector<float> & waveform_16k, size_t threads);
 
 class SeedVcWhisperContentEncoder {
 public:
@@ -30,10 +32,7 @@ public:
         size_t threads) const;
 
 private:
-    struct State;
-
-    engine::modules::WhisperEmbeddingConfig config_;
-    std::shared_ptr<State> state_;
+    engine::modules::WhisperFrontendComponent frontend_;
 };
 
 }  // namespace engine::models::seed_vc

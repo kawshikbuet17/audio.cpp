@@ -15,6 +15,12 @@ enum class Qwen3TTSVariant {
     CustomVoice,
 };
 
+enum class Qwen3TTSPerfMode {
+    Standard,
+    FlashAttention,
+    MixedAttention,
+};
+
 struct Qwen3TTSGenerationOptions {
     int64_t max_new_tokens = 2048;
     bool do_sample = true;

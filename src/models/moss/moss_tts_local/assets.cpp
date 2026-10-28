@@ -1,6 +1,6 @@
 #include "engine/models/moss/moss_tts_local/assets.h"
 
-#include "engine/framework/assets/model_package.h"
+#include "engine/framework/model_spec/package.h"
 #include "engine/framework/io/json.h"
 
 #include <stdexcept>
@@ -11,8 +11,8 @@ namespace engine::models::moss_tts_local {
 namespace json = engine::io::json;
 namespace {
 
-MossBackboneConfig parse_backbone_config(const json::Value & value) {
-    MossBackboneConfig config;
+MossTTSLocalQwen3Config parse_backbone_config(const json::Value & value) {
+    MossTTSLocalQwen3Config config;
     config.hidden_size = json::require_i64(value, "hidden_size");
     config.intermediate_size = json::require_i64(value, "intermediate_size");
     config.num_hidden_layers = json::require_i64(value, "num_hidden_layers");
@@ -88,9 +88,9 @@ MossTTSLocalConfig parse_config(const assets::ResourceBundle & resources) {
 
 std::shared_ptr<const MossTTSLocalAssets> load_moss_tts_local_assets(const std::filesystem::path & model_path) {
     MossTTSLocalAssets assets;
-    assets.resources = assets::load_resource_bundle_from_package_spec(
+    assets.resources = engine::model_spec::load_resource_bundle(
         model_path,
-        assets::default_model_package_spec_path("moss_tts_local"));
+        engine::model_spec::default_spec_path("moss_tts_local"));
     assets.config = parse_config(assets.resources);
     assets.model_weights = assets.resources.open_tensor_source("model_weights");
     assets.audio_tokenizer_weights = assets.resources.open_tensor_source("audio_tokenizer_weights");

@@ -1,6 +1,6 @@
 #include "engine/models/ace_step/detokenizer.h"
 #include "engine/framework/core/backend.h"
-#include "engine/framework/modules/attention/qwen_decoder.h"
+#include "engine/framework/modules/transformers/decoder.h"
 #include "engine/framework/modules/activation_modules.h"
 #include "engine/framework/modules/linear_module.h"
 #include "engine/framework/modules/norm_modules.h"
@@ -11,6 +11,7 @@
 #include "helper_utils.h"
 
 #include <ggml-backend.h>
+#include <ggml-alloc.h>
 #include <ggml.h>
 
 #include <algorithm>
@@ -108,9 +109,6 @@ public:
             if (backend_ != nullptr && graph_ != nullptr) {
                 engine::core::release_backend_graph_resources(backend_, graph_);
             }
-            if (buffer_ != nullptr) {
-                ggml_backend_buffer_free(buffer_);
-            }
         }
 
         bool can_run(int64_t code_count) const noexcept {
@@ -123,7 +121,7 @@ public:
 
         AceStepLatents decode_audio_codes(const int32_t * audio_code_ids, int64_t code_count, std::vector<float> & expanded) const {
             const auto total_start = Clock::now();
-            const auto & config = assets_->config.diffusion;
+            const auto & config = assets_->config.encoder;
             if (code_count <= 0) {
                 return {};
             }
@@ -186,7 +184,7 @@ public:
 
     private:
         void build() {
-            const auto & config = assets_->config.diffusion;
+            const auto & config = assets_->config.encoder;
             ggml_init_params params{96ull * 1024ull * 1024ull, nullptr, true};
             ctx_.reset(ggml_init(params));
             if (ctx_ == nullptr) {
@@ -252,7 +250,7 @@ public:
                 core::TensorShape::from_dims({code_capacity_, config.pool_window_size, config.hidden_size})})
                                                .build(build_ctx, special_tokens);
             x = modules::AddModule{}.build(build_ctx, x, repeated_special_tokens);
-            modules::QwenDecoderLayerConfig layer_config;
+            modules::DecoderLayerConfig layer_config;
             layer_config.hidden_size = config.hidden_size;
             layer_config.num_attention_heads = config.num_attention_heads;
             layer_config.num_key_value_heads = config.num_key_value_heads;
@@ -262,7 +260,7 @@ public:
             layer_config.rope_theta = config.rope_theta;
             layer_config.attention_precision = GGML_PREC_F32;
             layer_config.projection_precision = GGML_PREC_F32;
-            const modules::QwenDecoderLayerModule layer_module(layer_config);
+            const modules::DecoderLayerModule layer_module(layer_config);
             for (int64_t i = 0; i < config.num_attention_pooler_hidden_layers; ++i) {
                 const auto & layer = weights_->layers.layers[static_cast<size_t>(i)];
                 const auto & mask =
@@ -282,10 +280,22 @@ public:
             ggml_set_output(output_);
             graph_ = ggml_new_graph_custom(ctx_.get(), 65536, false);
             ggml_build_forward_expand(graph_, output_);
-            buffer_ = ggml_backend_alloc_ctx_tensors(ctx_.get(), backend_);
-            if (buffer_ == nullptr) {
+            // Allocate by tensor lifetime, as in the lyric encoder. Keep the
+            // uploaded constants live across chunks and repeated requests,
+            // including either attention mask when a variant does not use it.
+            for (auto * input : {input_, special_tokens_, positions_, full_attention_mask_, sliding_attention_mask_}) {
+                ggml_set_input(input);
+                ggml_build_forward_expand(graph_, input);
+                if (input != input_) {
+                    ggml_set_output(input);
+                }
+            }
+            graph_allocator_.reset(ggml_gallocr_new(ggml_backend_get_default_buffer_type(backend_)));
+            if (!graph_allocator_ || !ggml_gallocr_alloc_graph(graph_allocator_.get(), graph_)) {
                 throw std::runtime_error("ACE-Step detokenizer backend buffer allocation failed");
             }
+            engine::debug::trace_log_scalar("ace_step.detokenizer.graph_bytes",
+                static_cast<int64_t>(ggml_gallocr_get_buffer_size(graph_allocator_.get(), 0)));
 
             std::vector<int32_t> position_values(static_cast<size_t>(config.pool_window_size), 0);
             for (int64_t i = 0; i < config.pool_window_size; ++i) {
@@ -338,7 +348,7 @@ public:
         core::TensorValue input_value_;
         ggml_tensor * output_ = nullptr;
         ggml_cgraph * graph_ = nullptr;
-        ggml_backend_buffer_t buffer_ = nullptr;
+        std::unique_ptr<ggml_gallocr, decltype(&ggml_gallocr_free)> graph_allocator_{nullptr, ggml_gallocr_free};
     };
 
     Impl(
@@ -350,7 +360,7 @@ public:
           assets_(std::move(assets)),
           weights_(dit_weights_runtime->detokenizer_weights()),
           quantizer_(ace_step_build_fsq_quantizer_table(
-              assets_->config.diffusion,
+              assets_->config.encoder,
               "ACE-Step native detokenizer")) {
         if (backend_ == nullptr) {
             throw std::runtime_error("ACE-Step detokenizer backend initialization failed");
@@ -378,7 +388,7 @@ public:
         engine::debug::timing_log_scalar(
             "ace_step.detokenizer.graph.ensure_ms",
             engine::debug::elapsed_ms(ensure_start, Clock::now()));
-        const auto & config = assets_->config.diffusion;
+        const auto & config = assets_->config.encoder;
         AceStepLatents out;
         out.frames = code_count * config.pool_window_size;
         out.channels = config.latent_channels;

@@ -1,6 +1,6 @@
 #include "engine/models/voxtral_realtime/loader.h"
 
-#include "engine/framework/assets/model_package.h"
+#include "engine/framework/model_spec/package.h"
 #include "engine/models/voxtral_realtime/session.h"
 
 #include <stdexcept>
@@ -30,23 +30,24 @@ runtime::CapabilitySet capabilities(const VoxtralRealtimeAssets & assets) {
 runtime::ModelCliInterface cli(const VoxtralRealtimeAssets &) {
     runtime::ModelCliInterface out;
     out.request_options = {
-        {"max_new_tokens", "n", "Maximum generated transcript tokens."},
-        {"do_sample", "bool", "Enable sampling instead of greedy decode."},
-        {"temperature", "float", "Sampling temperature."},
-        {"top_p", "float", "Nucleus sampling limit."},
-        {"top_k", "n", "Top-k sampling limit; 0 disables top-k."},
-        {"seed", "n", "Sampling seed."},
+        {"max_tokens", "int", "Maximum generated transcript tokens; omitted uses the audio-derived limit. Offline decoding only; ignored by live streaming.", false, std::nullopt, "1"},
+        {"do_sample", "bool", "Enable sampling instead of greedy decode.", false, "false"},
+        {"temperature", "float", "Sampling temperature; must be > 0.", false, "1", "0"},
+        {"top_p", "float", "Nucleus sampling probability in (0, 1].", false, "1", "0", "1"},
+        {"top_k", "n", "Top-k sampling limit; 0 disables top-k.", false, "50", "0"},
+        {"seed", "n", "Sampling seed.", false, "1234", "0"},
     };
     out.session_options = {
-        {"voxtral_realtime.weight_type", "native|f32|f16|bf16|q8_0", "Shared matmul weight storage type."},
-        {"voxtral_realtime.audio_encoder_weight_type", "native|f32|f16|bf16|q8_0",
-         "Audio encoder matmul weight storage type."},
-        {"voxtral_realtime.text_decoder_weight_type", "native|f32|f16|bf16|q8_0", "Text decoder matmul weight storage type."},
-        {"voxtral_realtime.audio_encoder_graph_arena_mb", "mb", "Audio encoder graph arena size."},
-        {"voxtral_realtime.audio_encoder_weight_context_mb", "mb", "Audio encoder weight context arena size."},
-        {"voxtral_realtime.text_decoder_prefill_graph_arena_mb", "mb", "Text decoder prefill graph arena size."},
-        {"voxtral_realtime.text_decoder_decode_graph_arena_mb", "mb", "Text decoder cached-step graph arena size."},
-        {"voxtral_realtime.text_decoder_weight_context_mb", "mb", "Text decoder weight context arena size."},
+        {"voxtral_realtime.weight_type", "native|f32|f16|bf16|q4_0|q4_1|q5_0|q5_1|q2_k|q3_k|q4_k|q5_k|q6_k|q8_0|nvfp4", "Shared weight storage type. Default: native.", false, "native"},
+        {"voxtral_realtime.audio_encoder_weight_type", "native|f32|f16|bf16|q4_0|q4_1|q5_0|q5_1|q2_k|q3_k|q4_k|q5_k|q6_k|q8_0|nvfp4", "Audio encoder weight storage; inherits weight_type."},
+        {"voxtral_realtime.text_decoder_weight_type", "native|f32|f16|bf16|q4_0|q4_1|q5_0|q5_1|q2_k|q3_k|q4_k|q5_k|q6_k|q8_0|nvfp4", "Text decoder weight storage; inherits weight_type."},
+        {"voxtral_realtime.audio_encoder_graph_arena_mb", "mb", "Audio encoder graph arena size.", false, "512", "1"},
+        {"voxtral_realtime.audio_encoder_weight_context_mb", "mb", "Audio encoder weight context arena size.", false, "128", "1"},
+        {"voxtral_realtime.text_decoder_prefill_graph_arena_mb", "int", "Decoder prefill graph arena in MiB. Decoder uses the maximum of prefill and decode arena settings. Default: 512.", false, "512", "1"},
+        {"voxtral_realtime.text_decoder_decode_graph_arena_mb", "int", "Decoder step graph arena in MiB. Decoder uses the maximum of prefill and decode arena settings. Default: 512.", false, "512", "1"},
+        {"voxtral_realtime.text_decoder_weight_context_mb", "mb", "Text decoder weight context arena size.", false, "128", "1"},
+        {"voxtral_realtime.stream_decode_cache_steps", "int", "Streaming decoder cache capacity in 80 ms steps. Must be positive and no greater than checkpoint sliding_window. Default: 1024.", false, "1024"},
+        {"voxtral_realtime.stream_batch_tokens", "int", "Audio tokens per streaming encoder forward. Default: 1.", false, "1", "1"},
     };
     return out;
 }
@@ -70,8 +71,8 @@ public:
             return false;
         }
         try {
-            const auto package_spec = engine::assets::default_model_package_spec_path(family());
-            (void) engine::assets::load_resource_bundle_from_package_spec(request.model_path, package_spec);
+            const auto package_spec = engine::model_spec::default_spec_path(family());
+            (void) engine::model_spec::load_resource_bundle(request.model_path, package_spec);
             return true;
         } catch (...) {
             return false;
@@ -85,15 +86,15 @@ public:
         inspection.metadata = metadata(*assets);
         inspection.capabilities = capabilities(*assets);
         inspection.cli = cli(*assets);
-        const auto package_spec = engine::assets::default_model_package_spec_path(family());
+        const auto package_spec = engine::model_spec::default_spec_path(family());
         inspection.discovered_configs = runtime::discover_named_assets_from_package_spec(
             request.model_path,
             package_spec,
-            engine::assets::ModelPackageResourceKind::Files);
+            engine::model_spec::ResourceKind::Files);
         inspection.discovered_weights = runtime::discover_named_assets_from_package_spec(
             request.model_path,
             package_spec,
-            engine::assets::ModelPackageResourceKind::Tensors);
+            engine::model_spec::ResourceKind::Tensors);
         return inspection;
     }
 

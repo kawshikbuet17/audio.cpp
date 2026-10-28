@@ -1,11 +1,15 @@
 #include "engine/models/qwen3_tts/tokenizer_speech_decoder.h"
 
+#include "engine/models/qwen3_tts/rknn_speech_decoder.h"
+
 #include "engine/framework/assets/tensor_source.h"
 #include "engine/framework/core/backend.h"
 #include "engine/framework/core/backend_weight_store.h"
 #include "engine/framework/debug/profiler.h"
 #include "engine/framework/io/json.h"
 #include "engine/framework/modules/activation_modules.h"
+#include "engine/framework/modules/attention/scaled_dot_product_attention.h"
+#include "engine/framework/modules/attention/streaming_frame_attention_cache.h"
 #include "engine/framework/modules/conv_modules.h"
 #include "engine/framework/modules/linear_module.h"
 #include "engine/framework/modules/lookup_modules.h"
@@ -15,7 +19,7 @@
 #include "engine/framework/modules/structural_modules.h"
 #include "engine/framework/modules/weight_binding.h"
 
-#include "../common/constant_tensor_cache.h"
+#include "engine/framework/core/constant_tensor_cache.h"
 
 #include <ggml-backend.h>
 #include <ggml.h>
@@ -26,6 +30,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -43,7 +49,13 @@ namespace binding = modules::binding;
 constexpr int64_t kSampleRate = 24000;
 constexpr int64_t kDecodeSamplesPerCode = 1920;
 constexpr int64_t kChunkCodes = 300;
-constexpr int64_t kLeftContextCodes = 25;
+constexpr int64_t kLeftContextCodes = Qwen3SpeechTokenizerDecoderRuntime::kLeftContextFrames;
+constexpr std::array<int64_t, 2> kStrixHaloCachedChunkFrames{300, 105};
+#if defined(ENGINE_HIP_STRIX_HALO_OPTIMIZATIONS)
+constexpr bool kStrixHaloGraphCacheEnabled = true;
+#else
+constexpr bool kStrixHaloGraphCacheEnabled = false;
+#endif
 constexpr float kCodebookEps = 1.0e-5F;
 constexpr float kMaskNegInf = -1.0e9F;
 
@@ -193,7 +205,138 @@ struct Qwen3SpeechTokenizerDecoderWeights {
     Conv1dWeights output_conv;
 };
 
+// Persistent stream tensors are separate from graph scratch: grow chunks and
+// short tails each use their exact frame count, and every graph uses the same
+// session-owned history. Weight addresses identify layers within this session.
+class Qwen3SpeechDecoderStreamState {
+public:
+    explicit Qwen3SpeechDecoderStreamState(size_t arena_bytes) {
+        ctx_.reset(ggml_init({arena_bytes, nullptr, true}));
+        if (!ctx_) throw std::runtime_error("failed to initialize Qwen3 decoder stream state");
+    }
+
+    ~Qwen3SpeechDecoderStreamState() {
+        if (buffer_) ggml_backend_buffer_free(buffer_);
+    }
+
+    core::TensorValue tensor(const void * layer, size_t slot, const core::TensorShape & shape) {
+        auto & tensors = tensors_[layer];
+        if (slot < tensors.size()) {
+            if (tensors[slot].shape.dims != shape.dims || tensors[slot].shape.rank != shape.rank) {
+                throw std::runtime_error("Qwen3 decoder stream cache shape changed");
+            }
+            return tensors[slot];
+        }
+        if (buffer_ || slot != tensors.size()) {
+            throw std::runtime_error("Qwen3 decoder stream cache layout changed");
+        }
+        core::ModuleBuildContext ctx{ctx_.get(), "qwen3_tts.speech_decoder.stream_state"};
+        auto value = core::make_tensor(ctx, GGML_TYPE_F32, shape);
+        ggml_set_input(value.tensor);
+        ggml_set_output(value.tensor);
+        tensors.push_back(value);
+        return value;
+    }
+
+    void allocate(ggml_backend_t backend) {
+        if (buffer_) return;
+        buffer_ = ggml_backend_alloc_ctx_tensors(ctx_.get(), backend);
+        if (!buffer_) throw std::runtime_error("failed to allocate Qwen3 decoder stream state");
+        reset();
+    }
+
+    void reset() {
+        if (buffer_) ggml_backend_buffer_clear(buffer_, 0);
+        frames = 0;
+    }
+
+    int64_t frames = 0;
+
+private:
+    std::unique_ptr<ggml_context, GgmlContextDeleter> ctx_;
+    ggml_backend_buffer_t buffer_ = nullptr;
+    std::map<const void *, std::vector<core::TensorValue>, std::less<const void *>> tensors_;
+};
+
 namespace {
+
+// Graph-local bindings into session-owned state. Each retained graph has an
+// exact chunk length, so the framework's tail slices commit only real frames.
+class DecoderStreamGraphState {
+public:
+    explicit DecoderStreamGraphState(Qwen3SpeechDecoderStreamState & state) : state_(state) {}
+
+    core::TensorValue convolution_input(
+        core::ModuleBuildContext & ctx, const void * layer,
+        const core::TensorValue & input, int64_t history) {
+        if (history == 0) return input;
+        auto shape = input.shape;
+        shape.dims[2] = history;
+        auto cache = state_.tensor(layer, 0, shape);
+        auto context = modules::ConcatModule({2}).build(ctx, cache, input);
+        auto next = modules::SliceModule({2, context.shape.dims[2] - history, history}).build(ctx, context);
+        updates_.push_back({cache.tensor, next.tensor});
+        return context;
+    }
+
+    core::TensorValue transposed_convolution_output(
+        core::ModuleBuildContext & ctx, const void * layer,
+        const core::TensorValue & raw, int64_t emit, int64_t overlap) {
+        if (overlap == 0) return raw;
+        auto shape = raw.shape;
+        shape.dims[2] = overlap;
+        auto carry = state_.tensor(layer, 0, shape);
+        core::TensorValue output, next;
+        if (overlap <= emit) {
+            auto head = modules::SliceModule({2, 0, overlap}).build(ctx, raw);
+            output = modules::AddModule{}.build(ctx, head, carry);
+            if (emit > overlap) {
+                auto body = modules::SliceModule({2, overlap, emit - overlap}).build(ctx, raw);
+                output = modules::ConcatModule({2}).build(ctx, output, body);
+            }
+            next = modules::SliceModule({2, emit, overlap}).build(ctx, raw);
+        } else {
+            // Kernels wider than one emitted chunk retain the unconsumed carry.
+            auto padded = core::wrap_tensor(
+                ggml_pad(ctx.ggml, carry.tensor, emit, 0, 0, 0), raw.shape, GGML_TYPE_F32);
+            auto mixed = modules::AddModule{}.build(ctx, raw, padded);
+            output = modules::SliceModule({2, 0, emit}).build(ctx, mixed);
+            next = modules::SliceModule({2, emit, overlap}).build(ctx, mixed);
+        }
+        updates_.push_back({carry.tensor, next.tensor});
+        return output;
+    }
+
+    std::pair<core::TensorValue, core::TensorValue> attention_input(
+        core::ModuleBuildContext & ctx, const void * layer,
+        const core::TensorValue & key, const core::TensorValue & value, int64_t window) {
+        auto shape = key.shape;
+        shape.dims[2] = window;
+        auto key_cache = state_.tensor(layer, 0, shape);
+        auto value_cache = state_.tensor(layer, 1, shape);
+        auto result = modules::StreamingFrameAttentionCacheModule({window}).build(
+            ctx, key_cache, value_cache, key, value);
+        updates_.push_back({key_cache.tensor, result.next_key_cache.tensor});
+        updates_.push_back({value_cache.tensor, result.next_value_cache.tensor});
+        return {result.key_context, result.value_context};
+    }
+
+    void expand(core::ModuleBuildContext & ctx, ggml_cgraph * graph) {
+        // Read every old state before any writes. The waveform is expanded first.
+        for (const auto & update : updates_) ggml_build_forward_expand(graph, update.next);
+        for (const auto & update : updates_) {
+            ggml_build_forward_expand(graph, ggml_cpy(ctx.ggml, update.next, update.cache));
+        }
+    }
+
+private:
+    struct Update {
+        ggml_tensor * cache;
+        ggml_tensor * next;
+    };
+    Qwen3SpeechDecoderStreamState & state_;
+    std::vector<Update> updates_;
+};
 
 std::vector<float> normalized_codebook(
     const assets::TensorSource & source,
@@ -490,7 +633,8 @@ core::TensorValue causal_conv1d(
     core::ModuleBuildContext & build_ctx,
     const core::TensorValue & input,
     const Conv1dWeights & weights,
-    common::ConstantTensorCache & constants) {
+    core::ConstantTensorCache & constants,
+    DecoderStreamGraphState * stream = nullptr) {
     const int64_t kernel_extent = (weights.kernel - 1) * weights.dilation + 1;
     const int64_t left_pad = kernel_extent - weights.stride;
     const int64_t length = input.shape.dims[2];
@@ -498,21 +642,27 @@ core::TensorValue causal_conv1d(
     const int64_t ideal_length =
         (static_cast<int64_t>(std::ceil(n_frames)) - 1) * weights.stride + (kernel_extent - left_pad);
     const int64_t right_pad = std::max<int64_t>(0, ideal_length - length);
-    auto * padded = ggml_pad_ext(
-        build_ctx.ggml,
-        input.tensor,
-        static_cast<int>(left_pad),
-        static_cast<int>(right_pad),
-        0,
-        0,
-        0,
-        0,
-        0,
-        0);
-    auto padded_value = core::wrap_tensor(
-        padded,
-        core::TensorShape::from_dims({input.shape.dims[0], input.shape.dims[1], input.shape.dims[2] + left_pad + right_pad}),
-        GGML_TYPE_F32);
+    core::TensorValue padded_value;
+    if (stream != nullptr) {
+        padded_value = stream->convolution_input(build_ctx, &weights, input, left_pad);
+    } else {
+        auto * padded = ggml_pad_ext(
+            build_ctx.ggml,
+            input.tensor,
+            static_cast<int>(left_pad),
+            static_cast<int>(right_pad),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0);
+        padded_value = core::wrap_tensor(
+            padded,
+            core::TensorShape::from_dims({input.shape.dims[0], input.shape.dims[1], input.shape.dims[2] + left_pad + right_pad}),
+            GGML_TYPE_F32);
+    }
+    auto * padded = padded_value.tensor;
     if (weights.weight.type != GGML_TYPE_F32 && weights.weight.type != GGML_TYPE_F16) {
         throw std::runtime_error(
             std::string("Qwen3 speech decoder depthwise conv does not support weight type: ") +
@@ -569,8 +719,25 @@ core::TensorValue causal_conv_transpose1d(
     core::ModuleBuildContext & build_ctx,
     const core::TensorValue & input,
     const ConvTranspose1dWeights & weights,
-    common::ConstantTensorCache & constants) {
+    core::ConstantTensorCache & constants,
+    DecoderStreamGraphState * stream = nullptr) {
     const int64_t right_trim = weights.kernel - weights.stride;
+    if (stream != nullptr) {
+        if (right_trim < 0) throw std::runtime_error("Qwen3 stateful transposed convolution requires kernel >= stride");
+        auto raw = modules::ConvTranspose1dModule({
+            weights.in_channels, weights.out_channels, weights.kernel,
+            static_cast<int>(weights.stride), 0, 1, false,
+        }).build(build_ctx, input, binding::conv_transpose1d_data(constants, weights.weight));
+        auto output = stream->transposed_convolution_output(
+            build_ctx, &weights, raw, input.shape.dims[2] * weights.stride, right_trim);
+        if (weights.use_bias) {
+            if (!weights.bias) throw std::runtime_error("Qwen3 transposed convolution requires bias");
+            auto bias = core::reshape_tensor(build_ctx, *weights.bias,
+                core::TensorShape::from_dims({1, weights.out_channels, 1}));
+            output = modules::AddModule(false, true).build(build_ctx, output, bias);
+        }
+        return output;
+    }
     auto output_bct = modules::ConvTranspose1dModule({
         weights.in_channels,
         weights.out_channels,
@@ -615,7 +782,7 @@ std::vector<float> snake_inv_beta_exp(const std::vector<float> & beta) {
 core::TensorValue snake_beta(
     core::ModuleBuildContext & build_ctx,
     const core::TensorValue & input,
-    common::ConstantTensorCache & constants,
+    core::ConstantTensorCache & constants,
     const std::vector<float> & alpha,
     const std::vector<float> & beta) {
     auto alpha_exp = constants.make_f32(
@@ -639,7 +806,7 @@ core::TensorValue codebook_decode(
     const CodebookWeights & codebook,
     int64_t dim,
     int64_t size,
-    common::ConstantTensorCache & constants) {
+    core::ConstantTensorCache & constants) {
     auto indices = core::wrap_tensor(
         codes_t_b,
         core::TensorShape::from_dims({codes_t_b->ne[1], codes_t_b->ne[0]}),
@@ -654,7 +821,7 @@ core::TensorValue quantizer_decode(
     core::ModuleBuildContext & build_ctx,
     ggml_tensor * codes_t_q_b,
     const Qwen3SpeechTokenizerDecoderWeights & weights,
-    common::ConstantTensorCache & constants) {
+    core::ConstantTensorCache & constants) {
     const auto & config = weights.config;
     const int64_t split_dim = config.codebook_dim / 2;
     core::TensorValue semantic_sum;
@@ -713,10 +880,12 @@ core::TensorValue attention(
     core::ModuleBuildContext & build_ctx,
     const core::TensorValue & input,
     ggml_tensor * positions,
-    ggml_tensor * mask,
+    const core::TensorValue & attention_mask,
     const AttentionWeights & weights,
     const DecoderConfig & config,
-    common::ConstantTensorCache & constants) {
+    core::ConstantTensorCache & constants,
+    Qwen3TTSPerfMode perf_mode,
+    DecoderStreamGraphState * stream = nullptr) {
     const int64_t kv_repeat = config.num_heads / config.num_kv_heads;
     auto q_value = modules::LinearModule(binding::linear_config(weights.q.input_dim, weights.q.output_dim, weights.q.use_bias))
                        .build(build_ctx, input, binding::linear_data(constants, weights.q.weight, weights.q.bias));
@@ -751,63 +920,58 @@ core::TensorValue attention(
         core::wrap_tensor(k, core::TensorShape::from_dims({batch, seq, config.num_kv_heads, config.head_dim}), GGML_TYPE_F32),
         position_value)
             .tensor;
-    const float scale = 1.0F / std::sqrt(static_cast<float>(config.head_dim));
-    std::vector<ggml_tensor *> batches;
-    batches.reserve(static_cast<size_t>(batch));
-    for (int64_t b = 0; b < batch; ++b) {
-        std::vector<ggml_tensor *> heads;
-        heads.reserve(static_cast<size_t>(config.num_heads));
-        for (int64_t h = 0; h < config.num_heads; ++h) {
-            const int64_t kv_head = h / kv_repeat;
-            auto * qh = ggml_view_2d(
-                ctx,
-                q,
-                config.head_dim,
-                seq,
-                q->nb[2],
-                static_cast<size_t>(h) * q->nb[1] + static_cast<size_t>(b) * q->nb[3]);
-            auto * kh = ggml_view_2d(
-                ctx,
-                k,
-                config.head_dim,
-                seq,
-                k->nb[2],
-                static_cast<size_t>(kv_head) * k->nb[1] + static_cast<size_t>(b) * k->nb[3]);
-            auto * vh = ggml_view_2d(
-                ctx,
-                v,
-                config.head_dim,
-                seq,
-                v->nb[2],
-                static_cast<size_t>(kv_head) * v->nb[1] + static_cast<size_t>(b) * v->nb[3]);
-            auto * scores = ggml_mul_mat(
-                ctx,
-                core::has_backend_addressable_layout(kh) ? kh : ggml_cont(ctx, kh),
-                core::has_backend_addressable_layout(qh) ? qh : ggml_cont(ctx, qh));
-            scores = ggml_scale(ctx, scores, scale);
-            scores = ggml_add(ctx, scores, mask);
-            auto * attn = ggml_soft_max(ctx, core::has_backend_addressable_layout(scores) ? scores : ggml_cont(ctx, scores));
-            auto * vh_t = ggml_transpose(ctx, vh);
-            auto * context = ggml_mul_mat(
-                ctx,
-                core::has_backend_addressable_layout(vh_t) ? vh_t : ggml_cont(ctx, vh_t),
-                core::has_backend_addressable_layout(attn) ? attn : ggml_cont(ctx, attn));
-            heads.push_back(context);
-        }
-        auto * batch_output = heads.front();
-        for (size_t i = 1; i < heads.size(); ++i) {
-            batch_output = ggml_concat(ctx, batch_output, heads[i], 0);
-        }
-        batches.push_back(ggml_reshape_3d(ctx, batch_output, config.num_heads * config.head_dim, seq, 1));
+    auto q_heads = modules::TransposeModule({{0, 2, 1, 3}, 4}).build(
+        build_ctx,
+        core::wrap_tensor(q, core::TensorShape::from_dims({batch, seq, config.num_heads, config.head_dim}), GGML_TYPE_F32));
+    auto k_heads = modules::TransposeModule({{0, 2, 1, 3}, 4}).build(
+        build_ctx,
+        core::wrap_tensor(k, core::TensorShape::from_dims({batch, seq, config.num_kv_heads, config.head_dim}), GGML_TYPE_F32));
+    auto v_heads = modules::TransposeModule({{0, 2, 1, 3}, 4}).build(
+        build_ctx,
+        core::wrap_tensor(v, core::TensorShape::from_dims({batch, seq, config.num_kv_heads, config.head_dim}), GGML_TYPE_F32));
+    if (stream != nullptr) {
+        auto context = stream->attention_input(build_ctx, &weights, k_heads, v_heads, config.sliding_window);
+        k_heads = context.first;
+        v_heads = context.second;
     }
-    auto * merged = batches.front();
-    for (size_t i = 1; i < batches.size(); ++i) {
-        merged = ggml_concat(ctx, merged, batches[i], 2);
+    if (kv_repeat > 1) {
+        std::vector<core::TensorValue> repeated_k;
+        std::vector<core::TensorValue> repeated_v;
+        repeated_k.reserve(static_cast<size_t>(config.num_heads));
+        repeated_v.reserve(static_cast<size_t>(config.num_heads));
+        for (int64_t head = 0; head < config.num_kv_heads; ++head) {
+            auto one_k = modules::SliceModule({1, head, 1}).build(build_ctx, k_heads);
+            auto one_v = modules::SliceModule({1, head, 1}).build(build_ctx, v_heads);
+            for (int64_t repeat = 0; repeat < kv_repeat; ++repeat) {
+                repeated_k.push_back(one_k);
+                repeated_v.push_back(one_v);
+            }
+        }
+        k_heads = repeated_k.front();
+        v_heads = repeated_v.front();
+        for (size_t index = 1; index < repeated_k.size(); ++index) {
+            k_heads = modules::ConcatModule({1}).build(build_ctx, k_heads, repeated_k[index]);
+            v_heads = modules::ConcatModule({1}).build(build_ctx, v_heads, repeated_v[index]);
+        }
     }
+    auto context = modules::ScaledDotProductAttentionModule({
+        config.head_dim,
+        perf_mode == Qwen3TTSPerfMode::FlashAttention
+            ? modules::ScaledDotProductAttentionLowering::Flash
+            : modules::ScaledDotProductAttentionLowering::Explicit,
+        GGML_PREC_F32,
+        modules::AttentionCausality::NonCausal,
+    }).build(
+        build_ctx,
+        q_heads,
+        k_heads,
+        v_heads,
+        attention_mask);
+    context = core::ensure_backend_addressable_layout(build_ctx, context);
     return modules::LinearModule(binding::linear_config(weights.o.input_dim, weights.o.output_dim, weights.o.use_bias))
         .build(
             build_ctx,
-            core::wrap_tensor(merged, core::TensorShape::from_dims({batch, seq, config.num_heads * config.head_dim}), GGML_TYPE_F32),
+            core::reshape_tensor(build_ctx, context, core::TensorShape::from_dims({batch, seq, config.num_heads * config.head_dim})),
             binding::linear_data(constants, weights.o.weight, weights.o.bias));
 }
 
@@ -815,7 +979,7 @@ core::TensorValue mlp(
     core::ModuleBuildContext & build_ctx,
     const core::TensorValue & input,
     const MlpWeights & weights,
-    common::ConstantTensorCache & constants) {
+    core::ConstantTensorCache & constants) {
     auto gate_linear = modules::LinearModule(binding::linear_config(weights.gate.input_dim, weights.gate.output_dim, weights.gate.use_bias))
                            .build(build_ctx, input, binding::linear_data(constants, weights.gate.weight, weights.gate.bias));
     auto gate = modules::SiluModule{}.build(build_ctx, gate_linear);
@@ -829,7 +993,7 @@ core::TensorValue layer_scale(
     core::ModuleBuildContext & build_ctx,
     const core::TensorValue & input,
     const std::vector<float> & scale,
-    common::ConstantTensorCache & constants) {
+    core::ConstantTensorCache & constants) {
     return core::wrap_tensor(
         ggml_mul(
             build_ctx.ggml,
@@ -843,8 +1007,9 @@ core::TensorValue convnext(
     core::ModuleBuildContext & build_ctx,
     const core::TensorValue & input_bct,
     const ConvNeXtWeights & weights,
-    common::ConstantTensorCache & constants) {
-    auto hidden = causal_conv1d(build_ctx, input_bct, weights.dwconv, constants);
+    core::ConstantTensorCache & constants,
+    DecoderStreamGraphState * stream = nullptr) {
+    auto hidden = causal_conv1d(build_ctx, input_bct, weights.dwconv, constants, stream);
     hidden = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(build_ctx, hidden);
     hidden = modules::LayerNormModule({static_cast<int64_t>(weights.norm.weight.size()), weights.norm.eps, true, true})
                  .build(build_ctx, hidden, binding::norm(constants, weights.norm.weight, weights.norm.bias));
@@ -868,21 +1033,22 @@ core::TensorValue residual_unit(
     core::ModuleBuildContext & build_ctx,
     const core::TensorValue & input,
     const ResidualUnitWeights & weights,
-    common::ConstantTensorCache & constants) {
+    core::ConstantTensorCache & constants,
+    DecoderStreamGraphState * stream = nullptr) {
     auto hidden = snake_beta(
         build_ctx,
         input,
         constants,
         weights.act1_alpha,
         weights.act1_beta);
-    hidden = causal_conv1d(build_ctx, hidden, weights.conv1, constants);
+    hidden = causal_conv1d(build_ctx, hidden, weights.conv1, constants, stream);
     hidden = snake_beta(
         build_ctx,
         hidden,
         constants,
         weights.act2_alpha,
         weights.act2_beta);
-    hidden = causal_conv1d(build_ctx, hidden, weights.conv2, constants);
+    hidden = causal_conv1d(build_ctx, hidden, weights.conv2, constants, stream);
     return modules::AddModule{}.build(build_ctx, input, hidden);
 }
 
@@ -909,12 +1075,16 @@ public:
         std::shared_ptr<const Qwen3SpeechTokenizerDecoderWeights> weights,
         int64_t code_frames,
         core::ExecutionContext & execution_context,
-        common::ConstantTensorCache & constants,
-        size_t graph_arena_bytes)
+        core::ConstantTensorCache & constants,
+        size_t graph_arena_bytes,
+        Qwen3TTSPerfMode perf_mode,
+        Qwen3SpeechDecoderStreamState * stream_state = nullptr)
         : weights_(std::move(weights)),
+          stream_state_(stream_state),
           code_frames_(code_frames),
           backend_(execution_context.backend()),
-          compute_threads_(std::max(1, execution_context.config().threads)) {
+          compute_threads_(std::max(1, execution_context.config().threads)),
+          perf_mode_(perf_mode) {
         if (weights_ == nullptr) {
             throw std::runtime_error("Qwen3 speech decoder graph requires weights");
         }
@@ -943,11 +1113,19 @@ public:
             throw std::runtime_error("failed to initialize Qwen3 speech decoder ggml context");
         }
 
+        if (stream_state_ != nullptr) {
+            stream_ = std::make_unique<DecoderStreamGraphState>(*stream_state_);
+        }
+        const int64_t context_frames = code_frames_ + (stream_state_ != nullptr ? config.sliding_window : 0);
         codes_ = ggml_new_tensor_3d(ctx_.get(), GGML_TYPE_I32, code_frames_, config.num_quantizers, 1);
         ggml_set_input(codes_);
         positions_ = ggml_new_tensor_1d(ctx_.get(), GGML_TYPE_I32, code_frames_);
         ggml_set_input(positions_);
-        mask_ = ggml_new_tensor_2d(ctx_.get(), GGML_TYPE_F32, code_frames_, code_frames_);
+        if (perf_mode_ == Qwen3TTSPerfMode::FlashAttention) {
+            mask_ = ggml_new_tensor_4d(ctx_.get(), GGML_TYPE_F16, context_frames, code_frames_, 1, 1);
+        } else {
+            mask_ = ggml_new_tensor_2d(ctx_.get(), GGML_TYPE_F32, context_frames, code_frames_);
+        }
         ggml_set_input(mask_);
 
         core::ModuleBuildContext build_ctx{
@@ -958,7 +1136,7 @@ public:
         constants.begin_graph();
         auto hidden = quantizer_decode(ctx_.get(), build_ctx, codes_, *weights_, constants);
         hidden = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(build_ctx, hidden);
-        hidden = causal_conv1d(build_ctx, hidden, weights_->pre_conv, constants);
+        hidden = causal_conv1d(build_ctx, hidden, weights_->pre_conv, constants, stream_.get());
         hidden = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(build_ctx, hidden);
         hidden = modules::LinearModule(binding::linear_config(
             weights_->transformer_input_proj.input_dim,
@@ -968,7 +1146,10 @@ public:
         for (const auto & layer : weights_->transformer_layers) {
             auto attn_in = modules::RMSNormModule({static_cast<int64_t>(layer.input_norm.weight.size()), layer.input_norm.eps, true, false})
                                .build(build_ctx, hidden, binding::norm(constants, layer.input_norm.weight));
-            auto attn_out = attention(ctx_.get(), build_ctx, attn_in, positions_, mask_, layer.attention, config, constants);
+            auto attention_mask = perf_mode_ == Qwen3TTSPerfMode::FlashAttention
+                ? core::wrap_tensor(mask_, core::TensorShape::from_dims({1, 1, code_frames_, context_frames}), GGML_TYPE_F16)
+                : core::wrap_tensor(mask_, core::TensorShape::from_dims({code_frames_, context_frames}), GGML_TYPE_F32);
+            auto attn_out = attention(ctx_.get(), build_ctx, attn_in, positions_, attention_mask, layer.attention, config, constants, perf_mode_, stream_.get());
             hidden = modules::AddModule{}.build(build_ctx, hidden, layer_scale(build_ctx, attn_out, layer.attn_scale, constants));
             auto mlp_in = modules::RMSNormModule({static_cast<int64_t>(layer.post_norm.weight.size()), layer.post_norm.eps, true, false})
                               .build(build_ctx, hidden, binding::norm(constants, layer.post_norm.weight));
@@ -984,10 +1165,10 @@ public:
             .build(build_ctx, hidden, binding::linear_data(constants, weights_->transformer_output_proj.weight, weights_->transformer_output_proj.bias));
         hidden = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(build_ctx, hidden);
         for (const auto & stage : weights_->upsample_stages) {
-            hidden = causal_conv_transpose1d(build_ctx, hidden, stage.upconv, constants);
-            hidden = convnext(build_ctx, hidden, stage.convnext, constants);
+            hidden = causal_conv_transpose1d(build_ctx, hidden, stage.upconv, constants, stream_.get());
+            hidden = convnext(build_ctx, hidden, stage.convnext, constants, stream_.get());
         }
-        hidden = causal_conv1d(build_ctx, hidden, weights_->decoder_input_conv, constants);
+        hidden = causal_conv1d(build_ctx, hidden, weights_->decoder_input_conv, constants, stream_.get());
         for (const auto & block : weights_->decoder_blocks) {
             hidden = snake_beta(
                 build_ctx,
@@ -995,9 +1176,9 @@ public:
                 constants,
                 block.input_alpha,
                 block.input_beta);
-            hidden = causal_conv_transpose1d(build_ctx, hidden, block.upconv, constants);
+            hidden = causal_conv_transpose1d(build_ctx, hidden, block.upconv, constants, stream_.get());
             for (const auto & unit : block.residual_units) {
-                hidden = residual_unit(build_ctx, hidden, unit, constants);
+                hidden = residual_unit(build_ctx, hidden, unit, constants, stream_.get());
             }
         }
         hidden = snake_beta(
@@ -1006,24 +1187,37 @@ public:
             constants,
             weights_->output_alpha,
             weights_->output_beta);
-        output_ = ggml_clamp(ctx_.get(), causal_conv1d(build_ctx, hidden, weights_->output_conv, constants).tensor, -1.0F, 1.0F);
+        output_ = ggml_clamp(ctx_.get(), causal_conv1d(build_ctx, hidden, weights_->output_conv, constants, stream_.get()).tensor, -1.0F, 1.0F);
         ggml_set_output(output_);
         graph_ = ggml_new_graph_custom(ctx_.get(), graph_node_capacity(config), false);
         ggml_build_forward_expand(graph_, output_);
+        if (stream_ != nullptr) {
+            stream_->expand(build_ctx, graph_);
+            stream_state_->allocate(backend_);
+        }
         constants.finish_graph();
         constants.ensure_uploaded();
 
         gallocr_ = ggml_gallocr_new(ggml_backend_get_default_buffer_type(backend_));
-        if (gallocr_ == nullptr || !ggml_gallocr_alloc_graph(gallocr_, graph_)) {
+        if (gallocr_ == nullptr || !ggml_gallocr_reserve(gallocr_, graph_) || !ggml_gallocr_alloc_graph(gallocr_, graph_)) {
             throw std::runtime_error("failed to allocate Qwen3 speech decoder graph");
         }
-        std::vector<int32_t> positions(static_cast<size_t>(code_frames_));
+        positions_data_.resize(static_cast<size_t>(code_frames_));
         for (int64_t i = 0; i < code_frames_; ++i) {
-            positions[static_cast<size_t>(i)] = static_cast<int32_t>(i);
+            positions_data_[static_cast<size_t>(i)] = static_cast<int32_t>(i);
         }
-        const auto mask = make_mask(code_frames_, config.sliding_window);
-        ggml_backend_tensor_set(positions_, positions.data(), 0, positions.size() * sizeof(int32_t));
-        ggml_backend_tensor_set(mask_, mask.data(), 0, mask.size() * sizeof(float));
+        const auto mask = stream_state_ != nullptr
+            ? std::vector<float>(static_cast<size_t>(context_frames * code_frames_), kMaskNegInf)
+            : make_mask(code_frames_, config.sliding_window);
+        if (perf_mode_ == Qwen3TTSPerfMode::FlashAttention) {
+            mask_f16_data_.resize(mask.size());
+            for (size_t index = 0; index < mask.size(); ++index) {
+                mask_f16_data_[index] = ggml_fp32_to_fp16(mask[index]);
+            }
+        } else {
+            mask_f32_data_ = mask;
+        }
+        upload_static_inputs();
     }
 
     ~Qwen3SpeechTokenizerDecoderGraph() {
@@ -1038,7 +1232,8 @@ public:
         int64_t code_frames,
         ggml_backend_t backend,
         int threads) const {
-        return weights_.get() == &weights && code_frames_ >= code_frames && backend_ == backend &&
+        const bool frame_match = code_frames_ == code_frames;
+        return weights_.get() == &weights && frame_match && backend_ == backend &&
             compute_threads_ == std::max(1, threads);
     }
 
@@ -1048,7 +1243,30 @@ public:
         if (code_count % static_cast<size_t>(weights_->config.num_quantizers) != 0 || input_frames <= 0 || input_frames > code_frames_) {
             throw std::runtime_error("Qwen3 speech decoder code count exceeds graph capacity");
         }
+        if (stream_state_ != nullptr && input_frames != code_frames_) {
+            throw std::runtime_error("Qwen3 stateful decoder requires an exact-length graph");
+        }
         const auto upload_start = Clock::now();
+        // Cached GGML graphs may reuse backend allocations whose input contents are
+        // not guaranteed to survive a prior execution. Restore every declared input,
+        // not only the request-varying codes, before replaying a retained graph.
+        if (stream_ != nullptr) {
+            const int64_t start = stream_state_->frames;
+            const int64_t window = weights_->config.sliding_window;
+            const int64_t keys = window + code_frames_;
+            for (int64_t q = 0; q < code_frames_; ++q) {
+                positions_data_[static_cast<size_t>(q)] = static_cast<int32_t>(start + q);
+                for (int64_t k = 0; k < keys; ++k) {
+                    const int64_t position = start - window + k;
+                    const float value = position >= 0 && position <= start + q && position > start + q - window
+                        ? 0.0F : kMaskNegInf;
+                    const size_t index = static_cast<size_t>(k + keys * q);
+                    if (perf_mode_ == Qwen3TTSPerfMode::FlashAttention) mask_f16_data_[index] = ggml_fp32_to_fp16(value);
+                    else mask_f32_data_[index] = value;
+                }
+            }
+        }
+        upload_static_inputs();
         std::vector<int32_t> tensor_codes(expected, 0);
         for (int64_t frame = 0; frame < input_frames; ++frame) {
             for (int64_t group = 0; group < weights_->config.num_quantizers; ++group) {
@@ -1061,7 +1279,6 @@ public:
         const auto compute_start = Clock::now();
         core::set_backend_threads(backend_, compute_threads_);
         const ggml_status status = engine::core::compute_backend_graph(backend_, graph_);
-        ggml_backend_synchronize(backend_);
         last_graph_compute_ms_ = engine::debug::elapsed_ms(compute_start, Clock::now());
         if (status != GGML_STATUS_SUCCESS) {
             throw std::runtime_error("Qwen3 speech decoder graph compute failed");
@@ -1070,6 +1287,7 @@ public:
         std::vector<float> audio(static_cast<size_t>(waveform_frames_), 0.0F);
         ggml_backend_tensor_get(output_, audio.data(), 0, audio.size() * sizeof(float));
         last_output_read_ms_ = engine::debug::elapsed_ms(read_start, Clock::now());
+        if (stream_state_ != nullptr) stream_state_->frames += input_frames;
         return audio;
     }
 
@@ -1086,7 +1304,30 @@ public:
     }
 
 private:
+    void upload_static_inputs() {
+        ggml_backend_tensor_set(
+            positions_,
+            positions_data_.data(),
+            0,
+            positions_data_.size() * sizeof(int32_t));
+        if (perf_mode_ == Qwen3TTSPerfMode::FlashAttention) {
+            ggml_backend_tensor_set(
+                mask_,
+                mask_f16_data_.data(),
+                0,
+                mask_f16_data_.size() * sizeof(ggml_fp16_t));
+        } else {
+            ggml_backend_tensor_set(
+                mask_,
+                mask_f32_data_.data(),
+                0,
+                mask_f32_data_.size() * sizeof(float));
+        }
+    }
+
     std::shared_ptr<const Qwen3SpeechTokenizerDecoderWeights> weights_;
+    Qwen3SpeechDecoderStreamState * stream_state_ = nullptr;
+    std::unique_ptr<DecoderStreamGraphState> stream_;
     int64_t code_frames_ = 0;
     int64_t waveform_frames_ = 0;
     ggml_backend_t backend_ = nullptr;
@@ -1096,8 +1337,12 @@ private:
     ggml_tensor * positions_ = nullptr;
     ggml_tensor * mask_ = nullptr;
     ggml_tensor * output_ = nullptr;
+    std::vector<int32_t> positions_data_;
+    std::vector<float> mask_f32_data_;
+    std::vector<ggml_fp16_t> mask_f16_data_;
     ggml_cgraph * graph_ = nullptr;
     ggml_gallocr_t gallocr_ = nullptr;
+    Qwen3TTSPerfMode perf_mode_ = Qwen3TTSPerfMode::Standard;
     double last_input_upload_ms_ = 0.0;
     double last_graph_compute_ms_ = 0.0;
     double last_output_read_ms_ = 0.0;
@@ -1109,12 +1354,39 @@ Qwen3SpeechTokenizerDecoderRuntime::Qwen3SpeechTokenizerDecoderRuntime(
     size_t graph_arena_bytes,
     size_t constant_context_bytes,
     assets::TensorStorageType linear_weight_storage_type,
-    assets::TensorStorageType conv_weight_storage_type)
+    assets::TensorStorageType conv_weight_storage_type,
+    Qwen3TTSPerfMode perf_mode,
+    Qwen3SpeechTokenizerDecoderRknn rknn,
+    bool stateful_stream)
     : assets_(std::move(assets)),
       execution_context_(&execution_context),
-      graph_arena_bytes_(graph_arena_bytes) {
+      graph_arena_bytes_(graph_arena_bytes),
+      perf_mode_(perf_mode) {
     if (assets_ == nullptr) {
         throw std::runtime_error("Qwen3 speech tokenizer decoder requires assets");
+    }
+    if (stateful_stream && !rknn.model_path.empty()) {
+        throw std::runtime_error("qwen3_tts.stream_decoder=stateful requires the GGML speech decoder");
+    }
+    if (stateful_stream) {
+        stream_state_ = std::make_unique<Qwen3SpeechDecoderStreamState>(graph_arena_bytes_);
+    }
+    if (!rknn.model_path.empty()) {
+        // The NPU path owns the whole decoder stage, so the ggml decoder
+        // weights (hundreds of MB) are never loaded; only the config is needed,
+        // for shape validation and the RoPE/KV-window geometry.
+        auto config_only = std::make_shared<Qwen3SpeechTokenizerDecoderWeights>();
+        config_only->config = load_decoder_config(*assets_);
+        weights_ = std::move(config_only);
+        rknn_ = std::make_unique<RknnSpeechDecoder>(
+            std::move(rknn.model_path),
+            std::move(rknn.first_model_path),
+            std::move(rknn.window_path),
+            weights_->config.num_quantizers,
+            weights_->config.head_dim,
+            weights_->config.sliding_window,
+            weights_->config.rope_theta);
+        return;
     }
     weights_ = load_weights(
         *assets_,
@@ -1122,7 +1394,7 @@ Qwen3SpeechTokenizerDecoderRuntime::Qwen3SpeechTokenizerDecoderRuntime(
         execution_context_->backend_type(),
         linear_weight_storage_type,
         conv_weight_storage_type);
-    constants_ = std::make_unique<common::ConstantTensorCache>(
+    constants_ = std::make_unique<core::ConstantTensorCache>(
         execution_context_->backend(),
         std::max(1, execution_context_->config().threads),
         "qwen3_tts.speech_tokenizer_decoder.constants",
@@ -1139,9 +1411,17 @@ runtime::AudioBuffer Qwen3SpeechTokenizerDecoderRuntime::decode(const Qwen3Speec
     if (static_cast<int64_t>(codec_codes.codes.size()) != codec_codes.frames * codec_codes.code_groups) {
         throw std::runtime_error("Qwen3 speech decoder codec payload size mismatch");
     }
+    if (rknn_ != nullptr) {
+        const auto start = Clock::now();
+        auto samples = rknn_->decode(
+            codec_codes.codes.data(), codec_codes.frames, codec_codes.code_groups);
+        debug::timing_log_scalar(
+            "qwen3_tts.speech_decoder.rknn.decode_ms",
+            engine::debug::elapsed_ms(start, Clock::now()));
+        return runtime::AudioBuffer{kSampleRate, 1, std::move(samples)};
+    }
     std::vector<float> samples;
     samples.reserve(static_cast<size_t>(codec_codes.frames * kDecodeSamplesPerCode));
-    const int64_t graph_capacity_frames = std::min<int64_t>(codec_codes.frames, kChunkCodes + kLeftContextCodes);
     double graph_build_ms = 0.0;
     double input_upload_ms = 0.0;
     double graph_compute_ms = 0.0;
@@ -1149,6 +1429,8 @@ runtime::AudioBuffer Qwen3SpeechTokenizerDecoderRuntime::decode(const Qwen3Speec
     int64_t chunks = 0;
     int64_t graph_rebuilds = 0;
     int64_t max_chunk_frames = 0;
+    const bool optimized_cache_enabled =
+        kStrixHaloGraphCacheEnabled && execution_context_->backend_type() == core::BackendType::Hip;
     for (int64_t start = 0; start < codec_codes.frames; start += kChunkCodes) {
         const int64_t end = std::min<int64_t>(start + kChunkCodes, codec_codes.frames);
         const int64_t context = start > kLeftContextCodes ? kLeftContextCodes : start;
@@ -1163,22 +1445,38 @@ runtime::AudioBuffer Qwen3SpeechTokenizerDecoderRuntime::decode(const Qwen3Speec
             std::copy(src, src + codec_codes.code_groups, dst);
         }
         const int threads = std::max(1, execution_context_->config().threads);
-        if (graph_ == nullptr || !graph_->matches(*weights_, chunk_frames, execution_context_->backend(), threads)) {
+        auto * graph_slot = &graph_;
+#if defined(ENGINE_HIP_STRIX_HALO_OPTIMIZATIONS)
+        if (optimized_cache_enabled) {
+            for (size_t index = 0; index < kStrixHaloCachedChunkFrames.size(); ++index) {
+                if (chunk_frames == kStrixHaloCachedChunkFrames[index]) {
+                    graph_slot = &optimized_graphs_[index];
+                    break;
+                }
+            }
+        }
+#endif
+        auto & graph = *graph_slot;
+        const bool graph_rebuilt =
+            graph == nullptr || !graph->matches(*weights_, chunk_frames, execution_context_->backend(), threads);
+        if (graph_rebuilt) {
             const auto build_start = Clock::now();
-            graph_.reset();
-            graph_ = std::make_unique<Qwen3SpeechTokenizerDecoderGraph>(
+            graph.reset();
+            auto replacement = std::make_unique<Qwen3SpeechTokenizerDecoderGraph>(
                 weights_,
-                std::max(chunk_frames, graph_capacity_frames),
+                chunk_frames,
                 *execution_context_,
                 *constants_,
-                graph_arena_bytes_);
+                graph_arena_bytes_,
+                perf_mode_);
             graph_build_ms += engine::debug::elapsed_ms(build_start, Clock::now());
+            graph = std::move(replacement);
             ++graph_rebuilds;
         }
-        auto decoded = graph_->run(chunk.data(), chunk.size());
-        input_upload_ms += graph_->last_input_upload_ms();
-        graph_compute_ms += graph_->last_graph_compute_ms();
-        output_read_ms += graph_->last_output_read_ms();
+        auto decoded = graph->run(chunk.data(), chunk.size());
+        input_upload_ms += graph->last_input_upload_ms();
+        graph_compute_ms += graph->last_graph_compute_ms();
+        output_read_ms += graph->last_output_read_ms();
         ++chunks;
         const int64_t drop = context * kDecodeSamplesPerCode;
         if (drop > static_cast<int64_t>(decoded.size())) {
@@ -1202,28 +1500,147 @@ runtime::AudioBuffer Qwen3SpeechTokenizerDecoderRuntime::decode(const Qwen3Speec
     return runtime::AudioBuffer{kSampleRate, 1, std::move(samples)};
 }
 
+runtime::AudioBuffer Qwen3SpeechTokenizerDecoderRuntime::decode_stream_chunk(
+    const Qwen3SpeechCodes & codec_codes,
+    int64_t context_frames,
+    int64_t frames_per_chunk) const {
+    if (frames_per_chunk <= 0 || context_frames < 0 || context_frames > kLeftContextCodes ||
+        codec_codes.frames <= context_frames || codec_codes.frames - context_frames > frames_per_chunk ||
+        codec_codes.code_groups != weights_->config.num_quantizers ||
+        static_cast<int64_t>(codec_codes.codes.size()) != codec_codes.frames * codec_codes.code_groups) {
+        throw std::runtime_error("Qwen3 streaming speech decoder received invalid codec shape");
+    }
+    const auto begin = Clock::now();
+    if (rknn_ != nullptr) {
+        // NPU path: on the stateful engines the left context is already in the
+        // carried cache, so only the tail is fed and audio comes out in whole
+        // model groups (the controller drops empty chunks); with a window engine
+        // loaded the whole window is voiced per event from a zeroed cache and
+        // the context's audio is dropped (see RknnSpeechDecoder::step).
+        auto samples = rknn_->step(
+            codec_codes.codes.data(),
+            context_frames,
+            codec_codes.frames - context_frames,
+            codec_codes.code_groups,
+            false);
+        debug::timing_log_scalar("qwen3_tts.speech_decoder.rknn.chunk_ms", engine::debug::elapsed_ms(begin));
+        return runtime::AudioBuffer{kSampleRate, 1, std::move(samples)};
+    }
+    if (stream_state_ != nullptr) {
+        if (stream_graph_capacity_ != frames_per_chunk) {
+            stateful_graphs_.clear();
+            stream_graph_capacity_ = frames_per_chunk;
+        }
+        double graph_build_ms = 0.0, graph_compute_ms = 0.0, input_upload_ms = 0.0, output_read_ms = 0.0;
+        int64_t rebuilds = 0;
+        auto decode_frames = [&](const int32_t * codes, int64_t frames) {
+            const auto build_start = Clock::now();
+            auto & graph = stateful_graphs_[frames];
+            if (graph == nullptr) {
+                graph = std::make_unique<Qwen3SpeechTokenizerDecoderGraph>(
+                    weights_, frames, *execution_context_, *constants_, graph_arena_bytes_, perf_mode_, stream_state_.get());
+                ++rebuilds;
+            }
+            graph_build_ms += engine::debug::elapsed_ms(build_start);
+            auto samples = graph->run(codes, static_cast<size_t>(frames * codec_codes.code_groups));
+            graph_compute_ms += graph->last_graph_compute_ms();
+            input_upload_ms += graph->last_input_upload_ms();
+            output_read_ms += graph->last_output_read_ms();
+            return samples;
+        };
+        // Prime the reference tail once; subsequent windows repeat old context
+        // that is already represented by convolution and attention state.
+        if (stream_state_->frames == 0) {
+            for (int64_t offset = 0; offset < context_frames; offset += frames_per_chunk) {
+                decode_frames(codec_codes.codes.data() + offset * codec_codes.code_groups,
+                              std::min(frames_per_chunk, context_frames - offset));
+            }
+        }
+        auto decoded = decode_frames(codec_codes.codes.data() + context_frames * codec_codes.code_groups,
+                                     codec_codes.frames - context_frames);
+        debug::timing_log_scalar("qwen3_tts.speech_decoder.graph.rebuilds", rebuilds);
+        debug::timing_log_scalar("qwen3_tts.speech_decoder.graph.build_ms", graph_build_ms);
+        debug::timing_log_scalar("qwen3_tts.speech_decoder.graph.compute_ms", graph_compute_ms);
+        debug::timing_log_scalar("qwen3_tts.speech_decoder.input_upload_ms", input_upload_ms);
+        debug::timing_log_scalar("qwen3_tts.speech_decoder.output_read_ms", output_read_ms);
+        debug::timing_log_scalar("qwen3_tts.speech_decoder.total_ms", engine::debug::elapsed_ms(begin));
+        return runtime::AudioBuffer{kSampleRate, 1, std::move(decoded)};
+    }
+    const bool initial = context_frames == 0;
+    const int64_t capacity = initial ? codec_codes.frames : kLeftContextCodes + frames_per_chunk;
+    auto & graph = initial ? stream_initial_graph_ : stream_graph_;
+    const int threads = std::max(1, execution_context_->config().threads);
+    const bool rebuild = graph == nullptr ||
+        !graph->matches(*weights_, capacity, execution_context_->backend(), threads);
+    if (rebuild) {
+        graph.reset();
+        graph = std::make_unique<Qwen3SpeechTokenizerDecoderGraph>(
+            weights_, capacity, *execution_context_, *constants_, graph_arena_bytes_, perf_mode_);
+    }
+    debug::timing_log_scalar("qwen3_tts.speech_decoder.graph.rebuilds", static_cast<int64_t>(rebuild));
+    debug::timing_log_scalar("qwen3_tts.speech_decoder.graph.build_ms", engine::debug::elapsed_ms(begin));
+    // All decoder layers are causal. Right padding allows the initial and final
+    // short chunks to use the same graph without changing their valid samples.
+    auto decoded = graph->run(codec_codes.codes.data(), codec_codes.codes.size());
+    debug::timing_log_scalar("qwen3_tts.speech_decoder.graph.compute_ms", graph->last_graph_compute_ms());
+    debug::timing_log_scalar("qwen3_tts.speech_decoder.input_upload_ms", graph->last_input_upload_ms());
+    debug::timing_log_scalar("qwen3_tts.speech_decoder.output_read_ms", graph->last_output_read_ms());
+    decoded.resize(static_cast<size_t>(codec_codes.frames * kDecodeSamplesPerCode));
+    decoded.erase(decoded.begin(), decoded.begin() + context_frames * kDecodeSamplesPerCode);
+    debug::timing_log_scalar("qwen3_tts.speech_decoder.total_ms", engine::debug::elapsed_ms(begin));
+    return runtime::AudioBuffer{kSampleRate, 1, std::move(decoded)};
+}
+
+void Qwen3SpeechTokenizerDecoderRuntime::reset_stream() const {
+    if (stream_state_ != nullptr) stream_state_->reset();
+    if (rknn_ != nullptr) {
+        rknn_->reset();
+    }
+}
+
+runtime::AudioBuffer Qwen3SpeechTokenizerDecoderRuntime::flush_stream() const {
+    if (rknn_ == nullptr) {
+        return runtime::AudioBuffer{kSampleRate, 1, {}};
+    }
+    // The stateful model voices whole groups; whatever is left below one group
+    // at the end of the utterance is padded and voiced here.
+    return runtime::AudioBuffer{kSampleRate, 1, rknn_->step(nullptr, 0, 0, weights_->config.num_quantizers, true)};
+}
+
 runtime::AudioBuffer Qwen3SpeechTokenizerDecoderRuntime::decode_and_trim_reference(
     const Qwen3SpeechCodes & reference_codes,
     const Qwen3SpeechCodes & generated_codes) const {
     if (reference_codes.code_groups != generated_codes.code_groups) {
         throw std::runtime_error("Qwen3 speech decoder reference/generated code group mismatch");
     }
+    if (reference_codes.frames < 0 || generated_codes.frames < 0 || reference_codes.code_groups <= 0) {
+        throw std::runtime_error("Qwen3 speech decoder reference/generated code shape is invalid");
+    }
+    if (reference_codes.frames > std::numeric_limits<int64_t>::max() - generated_codes.frames) {
+        throw std::runtime_error("Qwen3 speech decoder combined frame count is too large");
+    }
     Qwen3SpeechCodes combined;
     combined.frames = reference_codes.frames + generated_codes.frames;
     combined.code_groups = reference_codes.code_groups;
-    combined.codes.reserve(static_cast<size_t>(combined.frames * combined.code_groups));
+    if (combined.frames > std::numeric_limits<int64_t>::max() / combined.code_groups) {
+        throw std::runtime_error("Qwen3 speech decoder combined code count is too large");
+    }
+    const int64_t combined_code_count = combined.frames * combined.code_groups;
+    if (static_cast<uint64_t>(combined_code_count) > std::numeric_limits<size_t>::max()) {
+        throw std::runtime_error("Qwen3 speech decoder combined code count exceeds host size limits");
+    }
+    combined.codes.reserve(static_cast<size_t>(combined_code_count));
     combined.codes.insert(combined.codes.end(), reference_codes.codes.begin(), reference_codes.codes.end());
     combined.codes.insert(combined.codes.end(), generated_codes.codes.begin(), generated_codes.codes.end());
     auto audio = decode(combined);
-    const int64_t cut = combined.frames > 0
-        ? static_cast<int64_t>(
-              static_cast<double>(reference_codes.frames) / static_cast<double>(combined.frames) *
-              static_cast<double>(audio.samples.size()))
-        : 0;
-    if (cut < 0 || cut > static_cast<int64_t>(audio.samples.size())) {
+    if (reference_codes.frames > std::numeric_limits<int64_t>::max() / kDecodeSamplesPerCode) {
+        throw std::runtime_error("Qwen3 speech decoder reference sample count is too large");
+    }
+    const int64_t cut = reference_codes.frames * kDecodeSamplesPerCode;
+    if (static_cast<uint64_t>(cut) > audio.samples.size()) {
         throw std::runtime_error("Qwen3 speech decoder reference trim is out of range");
     }
-    audio.samples.erase(audio.samples.begin(), audio.samples.begin() + cut);
+    audio.samples.erase(audio.samples.begin(), audio.samples.begin() + static_cast<std::ptrdiff_t>(cut));
     return audio;
 }
 

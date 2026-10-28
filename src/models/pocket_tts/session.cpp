@@ -3,8 +3,11 @@
 #include "engine/framework/debug/profiler.h"
 #include "engine/framework/debug/trace.h"
 #include "engine/framework/runtime/options.h"
+#include "engine/framework/runtime/spec_backed_model.h"
 #include "engine/framework/text/chunking.h"
 #include "engine/models/pocket_tts/assets.h"
+#include "engine/models/pocket_tts/backend_weights.h"
+#include "engine/models/pocket_tts/voice_state_assets.h"
 #include "graph_common.h"
 
 #include <algorithm>
@@ -13,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <optional>
@@ -25,7 +29,6 @@ namespace {
 constexpr int64_t kCpuPromptCapacityFloor = 32;
 constexpr int64_t kCpuGenerationCapacityFloor = 160;
 constexpr int64_t kGenerationCapacityQuantum = 16;
-constexpr int64_t kDefaultTextChunkSize = 256;
 constexpr int64_t kDefaultVoiceStateCacheSlots = 4;
 
 int64_t next_power_of_two(int64_t value) {
@@ -72,6 +75,8 @@ FlowLMConfig make_flow_config(const PocketTTSAssets & manifest) {
         manifest.model_config.flow_layers,
         1.0e-5F,
         1.0e-6F,
+        manifest.model_config.flow_depth,
+        manifest.model_config.time_embedding_plain_rms,
     };
 }
 
@@ -119,7 +124,7 @@ void apply_voice_condition(const std::optional<runtime::VoiceCondition> & voice,
 void apply_generation_options(
     const std::unordered_map<std::string, std::string> & options,
     GenerationRequest & generation_request) {
-    if (const auto embedding_path = runtime::find_option(options, {"voice_embedding_path", "pocket_tts.voice_embedding_path"})) {
+    if (const auto embedding_path = runtime::find_option(options, {"voice_embedding_file", "pocket_tts.voice_embedding_file", "voice_embedding_path", "pocket_tts.voice_embedding_path"})) {
         generation_request.voice.embedding_path = *embedding_path;
     }
     if (const auto clone_text = runtime::find_option(options, {"voice_clone_text", "pocket_tts.voice_clone_text"})) {
@@ -134,16 +139,15 @@ void apply_session_generation_options(
     const std::unordered_map<std::string, std::string> & options,
     GenerationRequest & generation_request) {
     apply_generation_options(options, generation_request);
-    if (const auto max_steps = runtime::parse_int_option(options, {"max_steps", "pocket_tts.max_steps"})) {
+    if (const auto max_steps = runtime::parse_int_option(options, {"max_frames", "max_steps", "pocket_tts.max_steps"})) {
         generation_request.max_steps = *max_steps;
     }
     if (const auto max_tokens = runtime::parse_int_option(
             options,
-            {"max_tokens", "pocket_tts.max_tokens"})) {
+            {"text_chunk_tokens", "max_tokens", "pocket_tts.max_tokens"})) {
         generation_request.max_tokens = *max_tokens;
     }
-    generation_request.text_chunk_size =
-        engine::text::parse_text_chunk_size_override(options).value_or(kDefaultTextChunkSize);
+    generation_request.text_chunk_size = engine::text::parse_text_chunk_size_override(options);
     if (const auto temperature = runtime::parse_float_option(options, {"temperature", "pocket_tts.temperature"})) {
         generation_request.temperature = *temperature;
     }
@@ -170,21 +174,21 @@ void apply_request_generation_options(
     }
     if (const auto max_tokens = runtime::parse_int_option(
             options,
-            {"max_tokens", "pocket_tts.max_tokens"})) {
+            {"text_chunk_tokens", "max_tokens", "pocket_tts.max_tokens"})) {
         generation_request.max_tokens = *max_tokens;
     }
-    generation_request.text_chunk_size =
-        engine::text::parse_text_chunk_size_override(options).value_or(kDefaultTextChunkSize);
+    generation_request.text_chunk_size = engine::text::parse_text_chunk_size_override(options);
 }
 
-GenerationRequest build_generation_request(const runtime::TaskRequest & request, float default_temperature) {
+GenerationRequest build_generation_request(const runtime::TaskRequest & request, const PocketTTSModelConfig & config) {
     if (!request.text_input.has_value()) {
         throw std::runtime_error("PocketTTS run requires text_input");
     }
     validate_supported_style(request.voice);
 
     GenerationRequest generation_request;
-    generation_request.temperature = default_temperature;
+    generation_request.temperature = config.default_temperature;
+    generation_request.eos_threshold = config.default_eos_threshold;
     generation_request.text = request.text_input->text;
     apply_voice_condition(request.voice, generation_request.voice);
     apply_request_generation_options(request.options, generation_request);
@@ -193,11 +197,12 @@ GenerationRequest build_generation_request(const runtime::TaskRequest & request,
 
 GenerationRequest build_preparation_generation_request(
     const runtime::SessionPreparationRequest & request,
-    float default_temperature) {
+    const PocketTTSModelConfig & config) {
     validate_supported_style(request.voice);
 
     GenerationRequest generation_request;
-    generation_request.temperature = default_temperature;
+    generation_request.temperature = config.default_temperature;
+    generation_request.eos_threshold = config.default_eos_threshold;
     if (request.text.has_value()) {
         generation_request.text = request.text->text;
     }
@@ -235,10 +240,10 @@ void validate_generation_request(const GenerationRequest & request) {
         throw std::runtime_error("PocketTTS text prompt is required");
     }
     if (request.max_steps < 0) {
-        throw std::runtime_error("PocketTTS max_steps must be non-negative");
+        throw std::runtime_error("PocketTTS max_frames must be non-negative");
     }
     if (request.max_tokens <= 0) {
-        throw std::runtime_error("PocketTTS max_tokens must be positive");
+        throw std::runtime_error("PocketTTS text_chunk_tokens must be positive");
     }
     if (request.frames_after_eos < -1) {
         throw std::runtime_error("PocketTTS frames_after_eos must be -1 or non-negative");
@@ -246,6 +251,29 @@ void validate_generation_request(const GenerationRequest & request) {
     if (request.temperature <= 0.0F) {
         throw std::runtime_error("PocketTTS temperature must be positive");
     }
+}
+
+// An explicit text_chunk_size keeps the character budget it always meant. Otherwise the text
+// is cut like the reference cuts it: on sentence boundaries, at most max_tokens tokens per
+// chunk. The streaming path used to pass max_tokens (50) as a CHARACTER budget, which cut
+// nearly every sentence in two, and the offline path used 256 characters.
+std::vector<std::string> split_generation_text(
+    const TextConditioner & text_conditioner,
+    const PocketTTSAssets & manifest,
+    const GenerationRequest & request) {
+    if (request.text_chunk_size.has_value()) {
+        return engine::text::split_text_chunks(request.text, *request.text_chunk_size);
+    }
+    return text_conditioner.split_into_sentence_chunks(manifest, request.text, request.max_tokens);
+}
+
+void trace_text_chunking(const char * prefix, const GenerationRequest & request, size_t chunk_count) {
+    const std::string key = std::string(prefix) +
+        (request.text_chunk_size.has_value() ? "text_chunk_size" : "max_tokens");
+    engine::debug::trace_log_scalar(
+        key,
+        request.text_chunk_size.has_value() ? *request.text_chunk_size : static_cast<int64_t>(request.max_tokens));
+    engine::debug::trace_log_scalar(std::string(prefix) + "text_chunk_count", static_cast<int64_t>(chunk_count));
 }
 
 int estimate_max_steps(const PocketTTSAssets & manifest, int64_t token_count) {
@@ -300,7 +328,7 @@ int estimate_default_frames_after_eos(const PocketTTSAssets & manifest, std::str
         ++words;
     }
     const int guess = words <= 4 ? 3 : 1;
-    return guess + 2;
+    return guess + manifest.model_config.frames_after_eos_offset;
 }
 
 VoiceConditioningPlan resolve_voice_conditioning_plan(
@@ -343,6 +371,13 @@ VoiceConditioningPlan resolve_voice_conditioning_plan(
         plan.source = VoiceSourceKind::NamedPreset;
         plan.preset_name = voice.preset_name;
         plan.asset_path = preset_embedding_path(model_dir, voice.preset_name);
+        // Gradium Phonon checkpoints ship their default voice beside the weights
+        std::error_code ec;
+        const auto checkpoint_default = model_dir / "default-voice.safetensors";
+        if (voice.preset_name == "default" && !std::filesystem::is_regular_file(plan.asset_path, ec)
+            && std::filesystem::is_regular_file(checkpoint_default, ec)) {
+            plan.asset_path = checkpoint_default;
+        }
         return plan;
     }
     throw std::runtime_error("PocketTTS voice config requires preset_name, embedding_path, clone_audio_path, or clone_audio");
@@ -447,11 +482,13 @@ PocketTTSSession::PocketTTSSession(
     runtime::TaskSpec task,
     runtime::SessionOptions options,
     std::shared_ptr<const PocketTTSAssets> manifest,
-    std::filesystem::path model_dir)
+    std::filesystem::path model_dir,
+    std::shared_ptr<const engine::model_spec::ModelContract> request_contract)
     : RuntimeSessionBase(options),
       task_(task),
       manifest_(std::move(manifest)),
       model_dir_(std::move(model_dir)),
+      request_contract_(std::move(request_contract)),
       graph_capacity_(resolve_graph_capacity_config()),
       weights_(load_pocket_tts_backend_weights(
           *manifest_,
@@ -469,11 +506,12 @@ PocketTTSSession::PocketTTSSession(
       cached_voice_states_(resolve_voice_state_cache_slots(this->options())),
       prompt_capacity_controller_(graph_capacity_.prompt_mode),
       generation_capacity_controller_(graph_capacity_.generation_mode) {
-    if (task_.task != runtime::VoiceTaskKind::Tts) {
-        throw std::runtime_error("PocketTTS only supports VoiceTaskKind::Tts");
+    if (task_.task != runtime::VoiceTaskKind::Tts &&
+        task_.task != runtime::VoiceTaskKind::VoiceCloning) {
+        throw std::runtime_error("PocketTTS supports TTS and voice cloning");
     }
-    if (task_.mode != runtime::RunMode::Offline) {
-        throw std::runtime_error("PocketTTS only supports offline mode");
+    if (task_.mode != runtime::RunMode::Offline && task_.mode != runtime::RunMode::Streaming) {
+        throw std::runtime_error("PocketTTS only supports offline and streaming mode");
     }
     if (graph_capacity_.prompt_mode == runtime::GraphCapacityMode::Unsupported
         || graph_capacity_.generation_mode == runtime::GraphCapacityMode::Unsupported) {
@@ -556,10 +594,12 @@ PocketTTSGraphCapacityConfig PocketTTSSession::resolve_graph_capacity_config() c
     const runtime::GraphCapacityMode default_mode = core::requested_backend_uses_host_graph_plan(options().backend)
         ? runtime::GraphCapacityMode::Tiered
         : runtime::GraphCapacityMode::Double;
+    const auto capacity_options = runtime::apply_option_v1_compatibility(
+        options(), {{"offline_graph_capacity_mode", "pocket_tts.offline_graph_capacity_mode"}}, "PocketTTS");
     const auto mode = runtime::resolve_graph_capacity_mode(
-        options(),
+        capacity_options,
         default_mode,
-        {"offline_graph_capacity_mode", "graph_capacity_mode"});
+        {"pocket_tts.offline_graph_capacity_mode", "graph_capacity_mode"});
     PocketTTSGraphCapacityConfig config;
     config.prompt_mode = mode;
     config.generation_mode = mode;
@@ -598,23 +638,23 @@ PocketTTSGraphCapacityConfig PocketTTSSession::resolve_graph_capacity_config() c
         256)) * 1024ull * 1024ull;
     config.flow_step_graph_context_bytes = static_cast<size_t>(runtime::parse_positive_i64_option(
         options().options,
-        {"pocket_tts.flow_step_graph_context_mb"},
+        {"pocket_tts.flow_step_graph_arena_mb", "pocket_tts.flow_step_graph_context_mb"},
         256)) * 1024ull * 1024ull;
     config.mimi_encoder_graph_context_bytes = static_cast<size_t>(runtime::parse_positive_i64_option(
         options().options,
-        {"pocket_tts.mimi_encoder_graph_context_mb"},
+        {"pocket_tts.mimi_encoder_graph_arena_mb", "pocket_tts.mimi_encoder_graph_context_mb"},
         512)) * 1024ull * 1024ull;
     config.mimi_conv_graph_context_bytes = static_cast<size_t>(runtime::parse_positive_i64_option(
         options().options,
-        {"pocket_tts.mimi_conv_graph_context_mb"},
+        {"pocket_tts.mimi_conv_graph_arena_mb", "pocket_tts.mimi_conv_graph_context_mb"},
         32)) * 1024ull * 1024ull;
     config.mimi_transformer_graph_context_bytes = static_cast<size_t>(runtime::parse_positive_i64_option(
         options().options,
-        {"pocket_tts.mimi_transformer_graph_context_mb"},
+        {"pocket_tts.mimi_transformer_graph_arena_mb", "pocket_tts.mimi_transformer_graph_context_mb"},
         96)) * 1024ull * 1024ull;
     config.mimi_tail_graph_context_bytes = static_cast<size_t>(runtime::parse_positive_i64_option(
         options().options,
-        {"pocket_tts.mimi_tail_graph_context_mb"},
+        {"pocket_tts.mimi_tail_graph_arena_mb", "pocket_tts.mimi_tail_graph_context_mb"},
         512)) * 1024ull * 1024ull;
     config.mimi_full_chunk_frames = runtime::parse_positive_i64_option(
         options().options,
@@ -729,7 +769,7 @@ std::vector<int64_t> PocketTTSSession::prepared_generation_capacities() const {
 }
 
 std::string PocketTTSSession::family() const {
-    return "pocket_tts";
+    return manifest_->family;
 }
 
 runtime::VoiceTaskKind PocketTTSSession::task_kind() const {
@@ -740,16 +780,26 @@ runtime::RunMode PocketTTSSession::run_mode() const {
     return task_.mode;
 }
 
+void PocketTTSSession::validate_request_options(const std::unordered_map<std::string, std::string> & options) const {
+    if (request_contract_) {
+        runtime::validate_spec_backed_request_options(options, *request_contract_, manifest_->family);
+    }
+}
+
 void PocketTTSSession::prepare(const runtime::SessionPreparationRequest & request) {
+    validate_request_options(request.options);
     prepared_session_request_ =
-        build_preparation_generation_request(request, manifest_->model_config.default_temperature);
+        build_preparation_generation_request(request, manifest_->model_config);
+    if (!has_voice_selection(prepared_session_request_.voice) && manifest_->default_voice_path.has_value()) {
+        prepared_session_request_.voice.embedding_path = *manifest_->default_voice_path;
+    }
     if (!has_voice_selection(prepared_session_request_.voice)) {
         throw std::runtime_error(
             "PocketTTS session prepare() requires a session voice via --voice-id or --voice-ref");
     }
     if (const auto export_path = runtime::find_option(
             request.options,
-            {"pocket_tts.export_voice_state_path", "export_voice_state_path"})) {
+            {"export_voice_state_file", "pocket_tts.export_voice_state_file", "pocket_tts.export_voice_state_path", "export_voice_state_path"})) {
         export_voice_state(prepared_session_request_.voice, *export_path);
     }
     prepare_generation(prepared_session_request_);
@@ -758,10 +808,132 @@ void PocketTTSSession::prepare(const runtime::SessionPreparationRequest & reques
 
 runtime::TaskResult PocketTTSSession::run(const runtime::TaskRequest & request) {
     require_prepared("PocketTTS run()");
+    validate_request_options(request.options);
+    audio_decoder_.clear_runtime_cache();
+    const GenerationRequest generation_request = effective_request_for_run(request);
+    const GenerationResult generated = generate(generation_request);
+    runtime::TaskResult result;
+    result.audio_output = runtime::AudioBuffer{
+        generated.sample_rate,
+        1,
+        generated.audio,
+    };
+    return result;
+}
+
+runtime::StreamingPolicy PocketTTSSession::streaming_policy() const {
+    runtime::StreamingPolicy policy;
+    policy.input = runtime::StreamingInputKind::None;
+    policy.output = runtime::StreamingOutputKind::PullEvents;
+    return policy;
+}
+
+void PocketTTSSession::start_stream(const runtime::TaskRequest & request) {
+    require_prepared("PocketTTS streaming");
+    if (task_.mode != runtime::RunMode::Streaming) {
+        throw std::runtime_error("PocketTTS start_stream requires a streaming session");
+    }
+    validate_request_options(request.options);
+    reset();
+    stream_request_ = effective_request_for_run(request);
+    validate_generation_request(stream_request_);
+    stream_text_chunks_ = split_generation_text(text_conditioner_, *manifest_, stream_request_);
+    if (stream_text_chunks_.empty()) {
+        throw std::runtime_error("PocketTTS streaming text chunking produced no segments");
+    }
+    const auto voice_plan = resolve_voice_conditioning_plan(model_dir_, stream_request_);
+    stream_voice_state_ = resolve_prepared_voice_state(voice_plan);
+    stream_merged_audio_ = runtime::AudioBuffer{manifest_->model_config.sample_rate, 1, {}};
+    audio_decoder_.reset_streaming_state();
+    stream_started_at_ = std::chrono::steady_clock::now();
+    stream_started_ = true;
+    trace_text_chunking("pocket_tts.streaming.", stream_request_, stream_text_chunks_.size());
+}
+
+std::optional<runtime::StreamEvent> PocketTTSSession::next_stream_event() {
+    if (!stream_started_) {
+        throw std::runtime_error("PocketTTS streaming has not been started");
+    }
+    while (true) {
+        if (!stream_acoustic_state_.has_value()) {
+            if (!start_next_stream_text_chunk()) {
+                return std::nullopt;
+            }
+        }
+        auto acoustic_step = acoustic_model_.next_stream_step(*stream_acoustic_state_);
+        if (!acoustic_step.has_value()) {
+            stream_acoustic_state_.reset();
+            continue;
+        }
+        auto audio = audio_decoder_.decode_streaming_step(
+            execution_context().backend(),
+            options().backend.threads,
+            *manifest_,
+            *weights_,
+            acoustic_step->next_latent,
+            graph_capacity_.mimi_conv_graph_context_bytes,
+            graph_capacity_.mimi_transformer_graph_context_bytes,
+            graph_capacity_.mimi_tail_graph_context_bytes);
+        runtime::AudioBuffer chunk{
+            manifest_->model_config.sample_rate,
+            1,
+            std::move(audio),
+        };
+        runtime::append_audio_buffer(stream_merged_audio_, chunk);
+
+        runtime::StreamEvent event;
+        event.named_audio_outputs.push_back({
+            "chunk_" + std::to_string(stream_audio_chunk_index_++),
+            std::move(chunk),
+            {},
+        });
+        return event;
+    }
+}
+
+void PocketTTSSession::set_stream_event_sink(runtime::StreamEventCallback sink) {
+    stream_event_sink_ = std::move(sink);
+}
+
+runtime::TaskResult PocketTTSSession::finish_stream() {
+    if (!stream_started_) {
+        throw std::runtime_error("PocketTTS streaming has not been started");
+    }
+    while (next_stream_event().has_value()) {
+    }
+    runtime::TaskResult result;
+    result.audio_output = std::move(stream_merged_audio_);
+    engine::debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(stream_started_at_));
+    reset();
+    return result;
+}
+
+void PocketTTSSession::reset() {
+    stream_request_ = {};
+    stream_voice_state_ = {};
+    stream_text_chunks_.clear();
+    stream_text_chunk_index_ = 0;
+    stream_acoustic_state_.reset();
+    audio_decoder_.reset_streaming_state();
+    stream_merged_audio_ = {};
+    stream_audio_chunk_index_ = 0;
+    stream_started_ = false;
+}
+
+runtime::StreamEvent PocketTTSSession::process_audio_chunk(const runtime::AudioChunk & chunk) {
+    (void) chunk;
+    throw std::runtime_error("PocketTTS streaming does not accept audio chunks");
+}
+
+runtime::TaskResult PocketTTSSession::finalize() {
+    return finish_stream();
+}
+
+GenerationRequest PocketTTSSession::effective_request_for_run(const runtime::TaskRequest & request) const {
     runtime::TaskRequest effective_request = request;
     effective_request.voice.reset();
     GenerationRequest generation_request =
-        build_generation_request(effective_request, manifest_->model_config.default_temperature);
+        build_generation_request(effective_request, manifest_->model_config);
     generation_request.max_steps = prepared_session_request_.max_steps;
     generation_request.max_tokens = prepared_session_request_.max_tokens;
     generation_request.temperature = prepared_session_request_.temperature;
@@ -771,14 +943,44 @@ runtime::TaskResult PocketTTSSession::run(const runtime::TaskRequest & request) 
     generation_request.noise_schedule = prepared_session_request_.noise_schedule;
     generation_request.noise_schedule_path = prepared_session_request_.noise_schedule_path;
     generation_request.voice = prepared_session_request_.voice;
-    const GenerationResult generated = generate(generation_request);
-    runtime::TaskResult result;
-    result.audio_output = runtime::AudioBuffer{
-        generated.sample_rate,
-        1,
-        generated.audio,
-    };
-    return result;
+    return generation_request;
+}
+
+bool PocketTTSSession::start_next_stream_text_chunk() {
+    if (stream_text_chunk_index_ >= stream_text_chunks_.size()) {
+        return false;
+    }
+    const auto & chunk = stream_text_chunks_[stream_text_chunk_index_++];
+    const TextConditioningResult text_state = text_conditioner_.prepare(*manifest_, weights_->host, chunk);
+    const AcousticGenerationConfig acoustic_config = resolve_acoustic_generation_config(
+        *manifest_,
+        text_state,
+        stream_request_,
+        acoustic_model_.config().latent_size);
+    const int64_t prompt_steps = static_cast<int64_t>(
+        text_state.text_embeddings.size() / static_cast<size_t>(acoustic_model_.config().hidden_size));
+    const AcousticCapacitySelection capacities = select_acoustic_capacities(prompt_steps, acoustic_config.max_steps);
+    AcousticPreparedRuntime acoustic_runtime = acoustic_model_.prepare_runtime(
+        execution_context().backend(),
+        options().backend.threads,
+        *manifest_,
+        *weights_,
+        text_state.text_embeddings,
+        stream_voice_state_,
+        acoustic_config,
+        capacities.prompt_capacity,
+        stream_voice_state_.current_end,
+        capacities.generation_capacity,
+        graph_capacity_.flow_weights_view_context_bytes,
+        graph_capacity_.flow_step_graph_context_bytes);
+    stream_acoustic_state_ = acoustic_model_.start_stream(
+        acoustic_runtime,
+        *manifest_,
+        *weights_,
+        text_state.text_embeddings,
+        stream_voice_state_,
+        acoustic_config);
+    return true;
 }
 
 void PocketTTSSession::prepare_generation(const GenerationRequest & request) {
@@ -791,8 +993,7 @@ void PocketTTSSession::prepare_generation(const GenerationRequest & request) {
         return;
     }
     const auto & manifest = *manifest_;
-    const int64_t text_chunk_size = request.text_chunk_size.value_or(kDefaultTextChunkSize);
-    const auto chunks = engine::text::split_text_chunks(request.text, text_chunk_size);
+    const auto chunks = split_generation_text(text_conditioner_, manifest, request);
     for (const auto & chunk : chunks) {
         const TextConditioningResult text_state = text_conditioner_.prepare(manifest, weights_->host, chunk);
         const AcousticGenerationConfig acoustic_config = resolve_acoustic_generation_config(
@@ -827,10 +1028,8 @@ GenerationResult PocketTTSSession::generate(const GenerationRequest & request) {
     const auto & manifest = *manifest_;
 
     const auto started_inference = std::chrono::steady_clock::now();
-    const int64_t text_chunk_size = request.text_chunk_size.value_or(kDefaultTextChunkSize);
-    const auto chunks = engine::text::split_text_chunks(request.text, text_chunk_size);
-    engine::debug::trace_log_scalar("pocket_tts.text_chunk_size", text_chunk_size);
-    engine::debug::trace_log_scalar("pocket_tts.text_chunk_count", static_cast<int64_t>(chunks.size()));
+    const auto chunks = split_generation_text(text_conditioner_, manifest, request);
+    trace_text_chunking("pocket_tts.", request, chunks.size());
     const auto voice_plan = resolve_voice_conditioning_plan(model_dir_, request);
 
     VoiceConditioningResult voice_state;

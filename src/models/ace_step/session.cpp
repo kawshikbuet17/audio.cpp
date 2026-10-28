@@ -1,23 +1,60 @@
 #include "engine/models/ace_step/session.h"
 
 #include "engine/framework/assets/tensor_source.h"
+#include "engine/framework/assets/weight_adapter.h"
 #include "engine/framework/debug/profiler.h"
+#include "engine/framework/io/json.h"
 #include "engine/framework/runtime/options.h"
 #include "engine/models/ace_step/prompt_builder.h"
 #include "engine/models/ace_step/repaint.h"
 #include "engine/models/ace_step/request_parser.h"
 #include "engine/models/ace_step/task_route.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace engine::models::ace_step {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+struct PerfPreset {
+    std::string_view name;
+    AceStepVAEDecodeConfig vae_decode;
+    bool planner_fused_projections;
+    bool planner_f16_decode;
+    bool planner_independent_cfg_prefill;
+};
+
+constexpr std::array<PerfPreset, 2> kPerfPresets{{
+    {"off", {}, false, false, false},
+    {"cuda_perf", {1024, 64}, true, true, true},
+}};
+
+AceStepVAEDecodeConfig vae_decode_config_from_options(const runtime::SessionOptions & options) {
+    const auto name = runtime::find_option(options.options, {"ace_step.perf_mode"}).value_or("off");
+    const auto preset = std::find_if(kPerfPresets.begin(), kPerfPresets.end(),
+        [&](const auto & entry) { return entry.name == name; });
+    if (preset == kPerfPresets.end()) {
+        throw std::runtime_error("Invalid ace_step.perf_mode: " + name);
+    }
+    auto config = preset->vae_decode;
+    if (const auto value = runtime::parse_i64_option(options.options, {"ace_step.vae_tile_frames"})) {
+        config.tile_frames = *value;
+    }
+    if (const auto value = runtime::parse_i64_option(options.options, {"ace_step.vae_tile_overlap_frames"})) {
+        config.tile_overlap_frames = *value;
+    }
+    engine::debug::trace_log_scalar("ace_step.perf_mode", name);
+    return config;
+}
 
 std::shared_ptr<const AceStepAssets> require_assets(std::shared_ptr<const AceStepAssets> assets) {
     if (assets == nullptr) {
@@ -143,20 +180,77 @@ bool mem_saver_from_options(const runtime::SessionOptions & options) {
     return false;
 }
 
+std::shared_ptr<const AceStepAssets> assets_with_adapter(
+    std::shared_ptr<const AceStepAssets> assets, const runtime::SessionOptions & options) {
+    const auto path = runtime::find_option(options.options, {"ace_step.lora"});
+    if (!path || path->empty()) return assets;
+    auto file = std::filesystem::u8path(*path);
+    if (file.is_relative()) file = assets->resources.model_root() / file;
+    assets::WeightAdapterReadOptions read_options;
+    read_options.strength = runtime::parse_finite_float_option(options.options, {"ace_step.lora_scale"}).value_or(1.0F);
+    auto adapter = assets::read_weight_adapter(file, read_options);
+    assets::WeightAdapterBindings bindings;
+    for (const auto & tensor : assets->dit_weights->tensors()) {
+        if (tensor.name.rfind("decoder.", 0) != 0) continue;
+        bindings.add(tensor.name, tensor.name);
+        bindings.add(tensor.name.substr(8), tensor.name);
+    }
+    auto plan = assets::bind_weight_adapter(*assets->dit_weights, std::move(adapter), bindings,
+        assets::WeightMergeMode::DeltaF32);
+    if (read_options.strength == 0.0F) return assets;
+    auto selected = std::make_shared<AceStepAssets>(*assets);
+    selected->dit_weights = assets::make_weight_adapter_source(assets->dit_weights, std::move(plan), "ace_step.lora", true);
+    return selected;
+}
+
+bool rewrite_caption_requested(const std::unordered_map<std::string, std::string> & options) {
+    const auto value = runtime::find_option(options, {"rewrite_caption"});
+    return value.has_value() && runtime::parse_bool_option(*value, "rewrite_caption");
+}
+
+std::string plan_json(const AceStepPlan & plan, const AceStepRequest & request) {
+    std::ostringstream out;
+    out << "{"
+        << "\"caption\":" << engine::io::json::stringify_string(plan.caption)
+        << ",\"cot_caption\":" << engine::io::json::stringify_string(plan.cot_caption)
+        << ",\"lyrics\":" << engine::io::json::stringify_string(request.lyrics);
+    if (plan.metadata.bpm.has_value()) {
+        out << ",\"bpm\":" << *plan.metadata.bpm;
+    }
+    if (plan.metadata.duration.has_value()) {
+        out << ",\"duration_seconds\":" << *plan.metadata.duration;
+    }
+    if (plan.metadata.keyscale.has_value()) {
+        out << ",\"keyscale\":" << engine::io::json::stringify_string(*plan.metadata.keyscale);
+    }
+    if (plan.metadata.timesignature.has_value()) {
+        out << ",\"timesignature\":" << engine::io::json::stringify_string(*plan.metadata.timesignature);
+    }
+    if (plan.metadata.language.has_value()) {
+        out << ",\"language\":" << engine::io::json::stringify_string(*plan.metadata.language);
+    }
+    if (plan.metadata.genres.has_value()) {
+        out << ",\"genres\":" << engine::io::json::stringify_string(*plan.metadata.genres);
+    }
+    out << "}";
+    return out.str();
+}
+
 }  // namespace
 
 AceStepSession::AceStepSession(runtime::TaskSpec task, runtime::SessionOptions options,
                                std::shared_ptr<const AceStepAssets> assets)
     : RuntimeSessionBase(options),
       task_(task),
-      assets_(require_assets(std::move(assets))),
+      assets_(assets_with_adapter(require_assets(std::move(assets)), RuntimeSessionBase::options())),
       planner_weight_storage_type_(
           weight_type_from_options(RuntimeSessionBase::options(), "ace_step.planner_weight_type")),
       text_encoder_weight_storage_type_(
           weight_type_from_options(RuntimeSessionBase::options(), "ace_step.text_encoder_weight_type")),
       dit_weight_storage_type_(dit_weight_type_from_options(RuntimeSessionBase::options())),
       vae_weight_storage_type_(weight_type_from_options(RuntimeSessionBase::options(), "ace_step.vae_weight_type")),
-      mem_saver_(mem_saver_from_options(RuntimeSessionBase::options())) {
+      mem_saver_(mem_saver_from_options(RuntimeSessionBase::options())),
+      vae_decode_config_(vae_decode_config_from_options(RuntimeSessionBase::options())) {
     if (task_.task != runtime::VoiceTaskKind::AudioGeneration) {
         throw std::runtime_error("ACE-Step supports only the gen task");
     }
@@ -178,8 +272,11 @@ runtime::RunMode AceStepSession::run_mode() const {
 }
 
 void AceStepSession::prepare(const runtime::SessionPreparationRequest &request) {
-    (void)request;
     ensure_planner();
+    if (rewrite_caption_requested(request.options)) {
+        mark_prepared();
+        return;
+    }
     ensure_vae_decoder();
     ensure_pre_dit();
     pre_dit_->prepare_runtime();
@@ -196,9 +293,46 @@ runtime::TaskResult AceStepSession::run(const runtime::TaskRequest &request) {
     const AceStepTaskRoute &route = ace_step_task_route(ace_request);
     validate_task_route_request(ace_request, route);
     engine::debug::timing_log_scalar("ace_step.session.parse_request_ms", engine::debug::elapsed_ms(parse_start, Clock::now()));
+    const bool flow_edit_morph = ace_step_request_uses_flow_edit_morph(ace_request);
+    if (ace_request.rewrite_caption) {
+        if (flow_edit_morph || !route.uses_planner) {
+            throw std::runtime_error("ACE-Step rewrite_caption requires a planner route");
+        }
+        const auto planner_ensure_start = Clock::now();
+        ensure_planner();
+        engine::debug::timing_log_scalar("ace_step.session.ensure_planner_ms",
+                                         engine::debug::elapsed_ms(planner_ensure_start, Clock::now()));
+        const auto planner_start = Clock::now();
+        AceStepPlan plan = planner_->generate(ace_request, false);
+        engine::debug::timing_log_scalar("ace_step.session.planner_generate_ms",
+                                         engine::debug::elapsed_ms(planner_start, Clock::now()));
+        const auto planner_release_start = Clock::now();
+        if (mem_saver_) planner_->release_graph_workspace();
+        if (execution_context().backend_type() == core::BackendType::Metal) {
+            planner_.reset();
+        }
+        engine::debug::timing_log_scalar("ace_step.session.planner_release.graph.workspace_ms",
+                                         engine::debug::elapsed_ms(planner_release_start, Clock::now()));
+
+        runtime::TaskResult result;
+        result.text_output = runtime::Transcript{
+            plan.caption,
+            plan.metadata.language.value_or(ace_request.vocal_language),
+        };
+        result.output_artifacts.push_back(runtime::make_text_artifact(
+            runtime::ArtifactKind::Custom,
+            "ace_step_caption_plan",
+            plan_json(plan, ace_request),
+            {
+                {"format", "json"},
+                {"extension", "json"},
+                {"mime", "application/json"},
+            }));
+        engine::debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(total_start, Clock::now()));
+        return result;
+    }
 
     AceStepPlan plan;
-    const bool flow_edit_morph = ace_step_request_uses_flow_edit_morph(ace_request);
     const bool has_request_audio_codes = !flow_edit_morph && !ace_request.audio_code_ids.empty();
     const bool use_planner =
         !flow_edit_morph &&
@@ -216,7 +350,7 @@ runtime::TaskResult AceStepSession::run(const runtime::TaskRequest &request) {
                                          engine::debug::elapsed_ms(planner_start, Clock::now()));
 
         const auto planner_release_start = Clock::now();
-        planner_->release_graph_workspace();
+        if (mem_saver_) planner_->release_graph_workspace();
         if (execution_context().backend_type() == core::BackendType::Metal) {
             planner_.reset();
         }
@@ -313,9 +447,32 @@ runtime::TaskResult AceStepSession::run(const runtime::TaskRequest &request) {
 
 void AceStepSession::ensure_planner() {
     if (!planner_) {
-        planner_ = std::make_unique<AceStepPlannerRuntime>(assets_, execution_context(), planner_weight_storage_type_,
+        const auto preset_name = runtime::find_option(options().options, {"ace_step.perf_mode"}).value_or("off");
+        const auto preset = std::find_if(kPerfPresets.begin(), kPerfPresets.end(),
+            [&](const auto & entry) { return entry.name == preset_name; });
+        if (preset == kPerfPresets.end()) {
+            throw std::runtime_error("Invalid ace_step.perf_mode: " + preset_name);
+        }
+        AceStepQwen3PlannerRuntime::GenerationConfig generation{4096, 512, 4032};
+        generation.prefix_bucketing = runtime::parse_bool_option(
+            runtime::find_option(options().options, {"ace_step.planner_prefix_bucketing"}).value_or("true"),
+            "ace_step.planner_prefix_bucketing");
+        engine::debug::trace_log_scalar("ace_step.planner.prefix_bucketing", generation.prefix_bucketing);
+        generation.fused_projections = runtime::parse_bool_option(
+            runtime::find_option(options().options, {"ace_step.planner_fused_projections"}).value_or(preset->planner_fused_projections ? "true" : "false"),
+            "ace_step.planner_fused_projections");
+        generation.f16_decode = runtime::parse_bool_option(
+            runtime::find_option(options().options, {"ace_step.planner_f16_decode"}).value_or(preset->planner_f16_decode ? "true" : "false"),
+            "ace_step.planner_f16_decode");
+        generation.independent_cfg_prefill = runtime::parse_bool_option(
+            runtime::find_option(options().options, {"ace_step.planner_independent_cfg_prefill"}).value_or(preset->planner_independent_cfg_prefill ? "true" : "false"),
+            "ace_step.planner_independent_cfg_prefill");
+        engine::debug::trace_log_scalar("ace_step.planner.fused_projections", generation.fused_projections);
+        engine::debug::trace_log_scalar("ace_step.planner.f16_decode", generation.f16_decode);
+        engine::debug::trace_log_scalar("ace_step.planner.independent_cfg_prefill", generation.independent_cfg_prefill);
+        planner_ = std::make_unique<AceStepQwen3PlannerRuntime>(assets_, execution_context(), planner_weight_storage_type_,
                                                            256ull * 1024ull * 1024ull, 128ull * 1024ull * 1024ull,
-                                                           AceStepPlannerRuntime::GenerationConfig{4096, 512, 4032});
+                                                           generation);
     }
 }
 
@@ -331,7 +488,11 @@ void AceStepSession::ensure_pre_dit() {
 void AceStepSession::ensure_diffusion() {
     ensure_dit_weights_runtime();
     if (!diffusion_) {
-        diffusion_ = std::make_unique<AceStepDiffusionRuntime>(assets_, execution_context(), dit_weights_runtime_);
+        const auto attention = core::parse_attention_preference(
+            runtime::find_option(options().options, {"ace_step.dit_attention"}).value_or("auto"),
+            "ace_step.dit_attention");
+        diffusion_ = std::make_unique<AceStepDiffusionRuntime>(
+            assets_, execution_context(), dit_weights_runtime_, 256ull * 1024ull * 1024ull, attention);
     }
 }
 
@@ -345,7 +506,8 @@ void AceStepSession::ensure_dit_weights_runtime() {
 void AceStepSession::ensure_vae_decoder() {
     if (!vae_decoder_) {
         vae_decoder_ =
-            std::make_shared<AceStepVAEDecoderRuntime>(assets_, execution_context(), vae_weight_storage_type_);
+            std::make_shared<AceStepVAEDecoderRuntime>(assets_, execution_context(), vae_weight_storage_type_,
+                256ull * 1024ull * 1024ull, 64ull * 1024ull * 1024ull, vae_decode_config_);
     }
 }
 

@@ -1,6 +1,6 @@
 #include "engine/models/higgs_audio_stt/assets.h"
 
-#include "engine/framework/assets/model_package.h"
+#include "engine/framework/model_spec/package.h"
 #include "engine/framework/io/json.h"
 
 #include <algorithm>
@@ -11,8 +11,8 @@ namespace engine::models::higgs_audio_stt {
 namespace json = engine::io::json;
 namespace {
 
-HiggsAudioSTTAudioEncoderConfig parse_audio_encoder_config(const json::Value & value) {
-    HiggsAudioSTTAudioEncoderConfig config;
+HiggsAudioSTTWhisperEncoderConfig parse_audio_encoder_config(const json::Value & value) {
+    HiggsAudioSTTWhisperEncoderConfig config;
     config.num_mel_bins = json::require_i64(value, "num_mel_bins");
     config.encoder_layers = json::require_i64(value, "encoder_layers");
     config.encoder_attention_heads = json::require_i64(value, "encoder_attention_heads");
@@ -26,10 +26,10 @@ HiggsAudioSTTAudioEncoderConfig parse_audio_encoder_config(const json::Value & v
     return config;
 }
 
-HiggsAudioSTTTextDecoderConfig parse_text_decoder_config(
+HiggsAudioSTTQwen3DecoderConfig parse_text_decoder_config(
     const json::Value & root,
     const json::Value & text_config) {
-    HiggsAudioSTTTextDecoderConfig config;
+    HiggsAudioSTTQwen3DecoderConfig config;
     config.vocab_size = json::require_i64(text_config, "vocab_size");
     config.output_size = config.vocab_size;
     config.hidden_size = json::require_i64(text_config, "hidden_size");
@@ -96,9 +96,9 @@ HiggsAudioSTTConfig parse_config(const assets::ResourceBundle & resources) {
 }  // namespace
 
 std::shared_ptr<const HiggsAudioSTTAssets> load_higgs_audio_stt_assets(const std::filesystem::path & model_path) {
-    auto resources = assets::load_resource_bundle_from_package_spec(
+    auto resources = engine::model_spec::load_resource_bundle(
         model_path,
-        assets::default_model_package_spec_path("higgs_audio_stt"));
+        engine::model_spec::default_spec_path("higgs_audio_stt"));
     auto assets = std::make_shared<HiggsAudioSTTAssets>();
     assets->config = parse_config(resources);
     assets->model_weights = resources.open_tensor_source("weights");

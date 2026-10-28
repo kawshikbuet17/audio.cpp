@@ -2,6 +2,7 @@
 #include "tensor_layout_utils.h"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 namespace engine::modules {
@@ -13,6 +14,13 @@ const core::ModulePortSpec kBinaryInputs[] = {
     {"rhs", core::PortKind::Activation, false},
 };
 
+const core::ModulePortSpec kRopeInterleavedPairsInputs[] = {
+    {"even", core::PortKind::Activation, false},
+    {"odd", core::PortKind::Activation, false},
+    {"cos", core::PortKind::Activation, false},
+    {"sin", core::PortKind::Activation, false},
+};
+
 const core::ModulePortSpec kSingleInput[] = {
     {"input", core::PortKind::Activation, false},
 };
@@ -20,6 +28,12 @@ const core::ModulePortSpec kSingleInput[] = {
 const core::ModulePortSpec kResidualInputs[] = {
     {"input", core::PortKind::Activation, false},
     {"residual", core::PortKind::Activation, false},
+};
+
+const core::ModulePortSpec kBypassInputs[] = {
+    {"original", core::PortKind::Activation, false},
+    {"transformed", core::PortKind::Activation, false},
+    {"channel_scale", core::PortKind::Parameter, false},
 };
 
 const core::ModulePortSpec kSingleOutput[] = {
@@ -61,6 +75,16 @@ const core::ModulePortSpec kTimeMask4dInputs[] = {
     {"mask", core::PortKind::Activation, false},
 };
 
+const core::ModuleSchema kRopeInterleavedPairsSchema = {
+    "RopeInterleavedPairs",
+    "tensor.position",
+    kRopeInterleavedPairsInputs,
+    4,
+    kSingleOutput,
+    1,
+    "Applies rotary position embedding to split even/odd pairs and returns interleaved pairs.",
+};
+
 const core::ModuleSchema kTimeMask4dSchema = {
     "TimeMask4d",
     "tensor.mask",
@@ -79,6 +103,16 @@ const core::ModuleSchema kResidualAddSchema = {
     kSingleOutput,
     1,
     "Adds a residual tensor to the main input.",
+};
+
+const core::ModuleSchema kScaledBypassSchema = {
+    "ScaledBypass",
+    "nn.primitive",
+    kBypassInputs,
+    3,
+    kSingleOutput,
+    1,
+    "Applies scaled residual bypass: original + (transformed - original) * channel_scale.",
 };
 
 const core::ModuleSchema kReduceMeanSchema = {
@@ -103,6 +137,16 @@ const core::ModuleSchema kReduceSumSchema = {
 
 void validate_same_shape(const core::TensorValue & lhs, const core::TensorValue & rhs, const char * op_name) {
     core::validate_shape(rhs, lhs.shape, op_name);
+}
+
+core::TensorShape make_last_dim_broadcast_shape(const core::TensorShape & target) {
+    core::TensorShape shape = {};
+    shape.rank = target.rank;
+    for (size_t i = 0; i < shape.rank; ++i) {
+        shape.dims[i] = 1;
+    }
+    shape.dims[shape.rank - 1] = target.last_dim();
+    return shape;
 }
 
 core::TensorShape transpose_last_two(const core::TensorShape & shape) {
@@ -226,10 +270,20 @@ core::TensorValue AddModule::build(
     if (ctx.ggml == nullptr) {
         throw std::runtime_error("ModuleBuildContext.ggml is null");
     }
-    validate_same_shape(lhs, rhs, "Add rhs");
+    if (allow_broadcast_) {
+        if (!ggml_can_repeat(rhs.tensor, lhs.tensor)) {
+            throw std::runtime_error("Add rhs shape cannot broadcast to lhs");
+        }
+    } else {
+        validate_same_shape(lhs, rhs, "Add rhs");
+    }
+    if (preserve_input_type_ && lhs.type != rhs.type) {
+        throw std::runtime_error("Add input types must match when preserving the result type");
+    }
     const auto lhs_contiguous = tensor_layout::ensure_contiguous_nontransposed_layout_if_needed(ctx, lhs);
     const auto rhs_contiguous = tensor_layout::ensure_contiguous_nontransposed_layout_if_needed(ctx, rhs);
-    return core::wrap_tensor(ggml_add(ctx.ggml, lhs_contiguous.tensor, rhs_contiguous.tensor), lhs.shape, GGML_TYPE_F32);
+    return core::wrap_tensor(ggml_add(ctx.ggml, lhs_contiguous.tensor, rhs_contiguous.tensor), lhs.shape,
+        preserve_input_type_ ? lhs.type : GGML_TYPE_F32);
 }
 
 const core::ModuleSchema & AddModule::static_schema() noexcept {
@@ -255,6 +309,38 @@ core::TensorValue MulModule::build(
 
 const core::ModuleSchema & MulModule::static_schema() noexcept {
     return kMulSchema;
+}
+
+const core::ModuleSchema & RopeInterleavedPairsModule::schema() const noexcept {
+    return static_schema();
+}
+
+core::TensorValue RopeInterleavedPairsModule::build(
+    core::ModuleBuildContext & ctx,
+    const core::TensorValue & even,
+    const core::TensorValue & odd,
+    const core::TensorValue & cos,
+    const core::TensorValue & sin) const {
+    if (ctx.ggml == nullptr) {
+        throw std::runtime_error("ModuleBuildContext.ggml is null");
+    }
+    validate_same_shape(even, odd, "RopeInterleavedPairs");
+    validate_same_shape(even, cos, "RopeInterleavedPairs");
+    validate_same_shape(even, sin, "RopeInterleavedPairs");
+    if (even.type != odd.type || cos.type != GGML_TYPE_F32 || sin.type != GGML_TYPE_F32) {
+        throw std::runtime_error("RopeInterleavedPairs expects matching even/odd type and F32 cos/sin");
+    }
+
+    core::TensorShape output_shape = even.shape;
+    output_shape.dims[output_shape.rank - 1] = 2;
+    return core::wrap_tensor(
+        ggml_rope_interleaved_pairs(ctx.ggml, even.tensor, odd.tensor, cos.tensor, sin.tensor),
+        output_shape,
+        even.type);
+}
+
+const core::ModuleSchema & RopeInterleavedPairsModule::static_schema() noexcept {
+    return kRopeInterleavedPairsSchema;
 }
 
 const core::ModuleSchema & TimeMask4dModule::schema() const noexcept {
@@ -307,6 +393,35 @@ const core::ModuleSchema & ResidualAddModule::static_schema() noexcept {
     return kResidualAddSchema;
 }
 
+const core::ModuleSchema & ScaledBypassModule::schema() const noexcept {
+    return static_schema();
+}
+
+core::TensorValue ScaledBypassModule::build(
+    core::ModuleBuildContext & ctx,
+    const core::TensorValue & original,
+    const core::TensorValue & transformed,
+    const core::TensorValue & channel_scale) const {
+    if (ctx.ggml == nullptr) {
+        throw std::runtime_error("ModuleBuildContext.ggml is null");
+    }
+    core::validate_rank_between(original, 1, core::kMaxTensorRank, "original");
+    validate_same_shape(original, transformed, "ScaledBypass transformed");
+    core::validate_shape(channel_scale, core::TensorShape::from_dims({original.shape.last_dim()}), "channel_scale");
+
+    const auto original_contiguous = tensor_layout::ensure_contiguous_nontransposed_layout_if_needed(ctx, original);
+    const auto transformed_contiguous = tensor_layout::ensure_contiguous_nontransposed_layout_if_needed(ctx, transformed);
+    const auto scale_view = core::reshape_tensor(ctx, channel_scale, make_last_dim_broadcast_shape(original.shape));
+    const auto repeated_scale = core::wrap_tensor(ggml_repeat(ctx.ggml, scale_view.tensor, original_contiguous.tensor), original.shape, GGML_TYPE_F32);
+    const auto delta = core::wrap_tensor(ggml_sub(ctx.ggml, transformed_contiguous.tensor, original_contiguous.tensor), original.shape, GGML_TYPE_F32);
+    const auto scaled_delta = core::wrap_tensor(ggml_mul(ctx.ggml, delta.tensor, repeated_scale.tensor), original.shape, GGML_TYPE_F32);
+    return core::wrap_tensor(ggml_add(ctx.ggml, original_contiguous.tensor, scaled_delta.tensor), original.shape, GGML_TYPE_F32);
+}
+
+const core::ModuleSchema & ScaledBypassModule::static_schema() noexcept {
+    return kScaledBypassSchema;
+}
+
 ReduceMeanModule::ReduceMeanModule(ReduceConfig config) : config_(config) {
 }
 
@@ -343,6 +458,60 @@ core::TensorValue ReduceSumModule::build(core::ModuleBuildContext & ctx, const c
 
 const core::ModuleSchema & ReduceSumModule::static_schema() noexcept {
     return kReduceSumSchema;
+}
+
+ScaleBiasModule::ScaleBiasModule(ScaleBiasConfig config) : config_(config) {}
+
+const core::ModuleSchema & ScaleBiasModule::schema() const noexcept {
+    return static_schema();
+}
+
+core::TensorValue ScaleBiasModule::build(core::ModuleBuildContext & ctx, const core::TensorValue & input) const {
+    core::validate_rank_between(input, 1, core::kMaxTensorRank, "input");
+    auto * output = ggml_scale_bias(ctx.ggml, input.tensor, config_.scale, config_.bias);
+    return core::wrap_tensor(output, input.shape, output->type);
+}
+
+const core::ModuleSchema & ScaleBiasModule::static_schema() noexcept {
+    static const core::ModuleSchema schema{"ScaleBias", "tensor.primitive", kSingleInput, 1, kSingleOutput, 1,
+        "Applies a scalar scale and bias to every element."};
+    return schema;
+}
+
+WeightedStatisticsModule::WeightedStatisticsModule(WeightedStatisticsConfig config) : config_(config) {
+    if (!std::isfinite(config_.variance_min) || config_.variance_min < 0 ||
+        std::isnan(config_.variance_max) || config_.variance_max < config_.variance_min) {
+        throw std::runtime_error("WeightedStatistics variance bounds must be nonnegative and ordered");
+    }
+}
+
+const core::ModuleSchema & WeightedStatisticsModule::schema() const noexcept {
+    return static_schema();
+}
+
+WeightedStatisticsOutputs WeightedStatisticsModule::build(core::ModuleBuildContext & ctx,
+    const core::TensorValue & input, const core::TensorValue & normalized_weights) const {
+    core::validate_shape(normalized_weights, input.shape, "normalized_weights");
+    const auto mean = ReduceSumModule({config_.axis}).build(ctx, MulModule().build(ctx, normalized_weights, input));
+    auto second = MulModule().build(ctx, input, input);
+    second = ReduceSumModule({config_.axis}).build(ctx, MulModule().build(ctx, normalized_weights, second));
+    auto * variance = ggml_sub(ctx.ggml, second.tensor, ggml_sqr(ctx.ggml, mean.tensor));
+    variance = ggml_clamp(ctx.ggml, variance, config_.variance_min, config_.variance_max);
+    return {mean, core::wrap_tensor(ggml_sqrt(ctx.ggml, variance), mean.shape, GGML_TYPE_F32)};
+}
+
+const core::ModuleSchema & WeightedStatisticsModule::static_schema() noexcept {
+    static const core::ModulePortSpec inputs[] = {
+        {"input", core::PortKind::Activation, false},
+        {"normalized_weights", core::PortKind::Activation, false},
+    };
+    static const core::ModulePortSpec outputs[] = {
+        {"mean", core::PortKind::Activation, false},
+        {"stddev", core::PortKind::Activation, false},
+    };
+    static const core::ModuleSchema schema{"WeightedStatistics", "tensor.pooling", inputs, 2, outputs, 2,
+        "Reduces normalized weights into a mean and clamped standard deviation, retaining the reduced axis."};
+    return schema;
 }
 
 }  // namespace engine::modules

@@ -7,6 +7,13 @@
 #   full-cuda12-YYYYMMDD-HHHHHHH (pinned to date + short SHA, immutable)
 #   full-cuda13                  (latest, mutable)
 #   full-cuda13-YYYYMMDD-HHHHHHH (pinned to date + short SHA, immutable)
+#   full-vulkan                  (latest, mutable)
+#   full-vulkan-YYYYMMDD-HHHHHHH (pinned to date + short SHA, immutable)
+#   full-rockchip-2.3.2                     (latest, mutable; the suffix is the
+#   full-rockchip-2.3.2-YYYYMMDD-HHHHHHH    pinned librknnrt version — engines
+#                                           are converted per SDK release, so
+#                                           the runtime version is part of the
+#                                           image's identity; arm64 only)
 
 name: Build and publish Docker images
 
@@ -21,6 +28,10 @@ on:
         description: 'Force build even if no new commits'
         type: boolean
         default: true
+      version:
+        description: 'audio.cpp version string embedded in the binaries'
+        type: string
+        default: dev
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref && github.ref || github.run_id }}
@@ -80,6 +91,7 @@ jobs:
     outputs:
       build_date: ${{ steps.date.outputs.date }}
       date_tag:   ${{ steps.date.outputs.tag }}
+      app_version: ${{ steps.version.outputs.version }}
       image_repo: ${{ steps.image_repo.outputs.image_repo }}
     steps:
       - name: Get build date
@@ -87,6 +99,16 @@ jobs:
         run: |
           echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
           echo "tag=$(date -u +'%Y%m%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve app version
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ -z "$VERSION" ]]; then
+            VERSION="dev"
+          fi
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Determine lowercase image repository
         id: image_repo
@@ -145,6 +167,27 @@ jobs:
             runs_on: ubuntu-24.04-arm
             cuda_version: "13.3.0"
             enabled: true
+          # ── Vulkan ──
+          - tag: vulkan
+            dockerfile: .devops/vulkan.Dockerfile
+            platforms: linux/amd64
+            arch: amd64
+            runs_on: ubuntu-24.04
+            enabled: true
+          - tag: vulkan
+            dockerfile: .devops/vulkan.Dockerfile
+            platforms: linux/arm64
+            arch: arm64
+            runs_on: ubuntu-24.04-arm
+            enabled: true
+          # ── Rockchip NPU (arm64 only: librknnrt is aarch64-only) ──
+          - tag: rockchip-2.3.2
+            dockerfile: .devops/rockchip.Dockerfile
+            platforms: linux/arm64
+            arch: arm64
+            runs_on: ubuntu-24.04-arm
+            rknn_sdk_tag: v2.3.2
+            enabled: true
     steps:
       - name: Skip when not enabled
         if: ${{ matrix.enabled != true }}
@@ -179,12 +222,13 @@ jobs:
           outputs: type=image,name=ghcr.io/${{ needs.metadata.outputs.image_repo }},push-by-digest=true,name-canonical=true,push=true,oci-mediatypes=true
           build-args: |
             BUILD_DATE=${{ needs.metadata.outputs.build_date }}
-            APP_VERSION=${{ github.sha }}
+            APP_VERSION=${{ needs.metadata.outputs.app_version }}
+            AUDIOCPP_VERSION=${{ needs.metadata.outputs.app_version }}
             APP_REVISION=${{ github.sha }}
             IMAGE_URL=${{ github.server_url }}/${{ github.repository }}
             IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
-            ENGINE_ENABLE_NATIVE_CPU=OFF
             ${{ matrix.cuda_version && format('CUDA_VERSION={0}', matrix.cuda_version) || '' }}
+            ${{ matrix.rknn_sdk_tag && format('RKNN_SDK_TAG={0}', matrix.rknn_sdk_tag) || '' }}
           cache-from: type=registry,ref=ghcr.io/${{ needs.metadata.outputs.image_repo }}:cache-${{ matrix.arch }}-${{ matrix.tag }}
           cache-to: type=registry,ref=ghcr.io/${{ needs.metadata.outputs.image_repo }}:cache-${{ matrix.arch }}-${{ matrix.tag }},mode=max
 
@@ -223,7 +267,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tag: [cpu, cuda12, cuda13]
+        tag: [cpu, cuda12, cuda13, vulkan, rockchip-2.3.2]
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

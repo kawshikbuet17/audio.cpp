@@ -17,7 +17,7 @@ namespace engine::core {
 class BackendWeightStore;
 }
 
-namespace engine::models::common {
+namespace engine::core {
 class ConstantTensorCache;
 }
 
@@ -80,12 +80,13 @@ public:
         int64_t input_dim) const;
     std::vector<VibeVoiceConnectorOutput> project_semantic_batch(
         const std::vector<VibeVoiceTokenizerLatents> & features) const;
+    void release_cached_graphs() const;
 
 private:
     std::shared_ptr<const VibeVoiceASRAssets> assets_;
     std::shared_ptr<const VibeVoiceConnectorWeightsBundle> weights_;
-    std::unique_ptr<common::ConstantTensorCache> acoustic_constants_;
-    std::unique_ptr<common::ConstantTensorCache> semantic_constants_;
+    std::unique_ptr<core::ConstantTensorCache> acoustic_constants_;
+    std::unique_ptr<core::ConstantTensorCache> semantic_constants_;
     mutable std::unique_ptr<VibeVoiceConnectorGraph> acoustic_graph_;
     mutable std::unique_ptr<VibeVoiceConnectorGraph> semantic_graph_;
     ggml_backend_t backend_ = nullptr;
@@ -104,6 +105,6 @@ core::TensorValue build_vibevoice_connector(
     core::ModuleBuildContext & ctx,
     const core::TensorValue & features,
     const VibeVoiceConnectorWeights & weights,
-    common::ConstantTensorCache & constants);
+    core::ConstantTensorCache & constants);
 
 }  // namespace engine::models::vibevoice_asr

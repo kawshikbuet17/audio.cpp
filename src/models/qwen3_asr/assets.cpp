@@ -1,6 +1,6 @@
 #include "engine/models/qwen3_asr/assets.h"
 
-#include "engine/framework/assets/model_package.h"
+#include "engine/framework/model_spec/package.h"
 #include "engine/framework/io/json.h"
 
 #include <stdexcept>
@@ -108,6 +108,9 @@ Qwen3ASRConfig parse_config(const assets::ResourceBundle & resources) {
 
     Qwen3ASRConfig config;
     config.hf_transformers_layout = hf_layout;
+    config.audio_encoder_binding = hf_layout
+        ? modules::Qwen3AudioEncoderWeightBinding{"model.audio_tower", "model.multi_modal_projector", "linear_1", "linear_2"}
+        : modules::Qwen3AudioEncoderWeightBinding{"thinker.audio_tower", "thinker.audio_tower"};
     config.model_type = json::require_string(root, "model_type");
     config.thinker_model_type = json::optional_string(thinker_config, "model_type", config.model_type);
     config.model_size = json::optional_string(root, "model_size", hf_layout ? "Qwen3-ASR-1.7B-hf" : config.model_type);
@@ -152,9 +155,7 @@ Qwen3ASRConfig parse_config(const assets::ResourceBundle & resources) {
 assets::ResourceBundle make_resource_bundle(
     const std::filesystem::path & model_path,
     std::string_view package_family) {
-    auto resources = assets::load_resource_bundle_from_package_spec(
-        model_path,
-        assets::default_model_package_spec_path(package_family));
+    auto resources = engine::model_spec::load_resource_bundle_for_family(model_path, package_family);
     if (!resources.has_file("preprocessor_config") && !resources.has_file("processor_config")) {
         throw std::runtime_error("Qwen3 ASR requires preprocessor_config.json or processor_config.json");
     }

@@ -5,7 +5,7 @@
 #include "engine/framework/runtime/options.h"
 #include "engine/framework/text/chunking.h"
 #include "engine/models/chatterbox/components.h"
-#include "engine/models/chatterbox/s3gen_flow.h"
+#include "engine/framework/codecs/s3gen_runtime.h"
 
 #include <chrono>
 #include <cmath>
@@ -20,6 +20,24 @@ namespace engine::models::chatterbox {
 namespace {
 
 constexpr int64_t kDefaultTextChunkSize = 128;
+
+void release_tensor_storage(const ChatterboxAssets & assets) {
+    if (assets.voice_encoder_weights != nullptr) {
+        assets.voice_encoder_weights->release_storage();
+    }
+    if (assets.s3gen_weights != nullptr) {
+        assets.s3gen_weights->release_storage();
+    }
+    if (assets.t3_english_weights != nullptr) {
+        assets.t3_english_weights->release_storage();
+    }
+    if (assets.t3_multilingual_v2_weights != nullptr) {
+        assets.t3_multilingual_v2_weights->release_storage();
+    }
+    if (assets.t3_multilingual_v3_weights != nullptr) {
+        assets.t3_multilingual_v3_weights->release_storage();
+    }
+}
 
 ChatterboxVoiceCloneConfig make_voice_clone_config(
     const std::unordered_map<std::string, std::string> & options) {
@@ -38,7 +56,7 @@ ChatterboxVoiceCloneConfig make_voice_clone_config(
     config.top_p = runtime::parse_float_option(options, {"top_p"}).value_or(config.top_p);
     config.s3gen_cfg_rate = runtime::parse_float_option(
         options,
-        {"s3gen_cfg_rate"})
+        {"flow_guidance_scale", "s3gen_cfg_rate"})
         .value_or(config.s3gen_cfg_rate);
     config.max_new_tokens = runtime::parse_positive_i64_option(
         options,
@@ -65,7 +83,7 @@ ChatterboxVoiceConversionConfig make_voice_conversion_config(
     ChatterboxVoiceConversionConfig config;
     config.s3gen_cfg_rate = runtime::parse_float_option(
         options,
-        {"s3gen_cfg_rate"})
+        {"flow_guidance_scale", "s3gen_cfg_rate"})
         .value_or(config.s3gen_cfg_rate);
     config.num_inference_steps = runtime::parse_positive_i64_option(
         options,
@@ -132,84 +150,84 @@ ChatterboxPromptPrepConfig make_prompt_prep_config(const runtime::SessionOptions
     return config;
 }
 
-std::unique_ptr<ChatterboxTtsComponent> make_chatterbox_component_for_language(
-    const ChatterboxAssetPaths & assets,
+std::unique_ptr<ChatterboxTTSComponent> make_chatterbox_component_for_language(
+    const ChatterboxAssets & assets,
     const runtime::SessionOptions & options,
     const engine::core::ExecutionContext & execution_context,
     engine::assets::TensorStorageType t3_weight_storage_type,
     engine::assets::TensorStorageType component_weight_storage_type,
+    ChatterboxMultilingualT3Version multilingual_t3_version,
     bool mem_saver,
     const std::string & language) {
-    require_chatterbox_tts_assets(assets);
     const bool use_multilingual = chatterbox_language_uses_multilingual_t3(language);
-    return std::make_unique<ChatterboxTtsComponent>(
-        load_t3_inference_weights(
-            use_multilingual ? assets.t3_multilingual_v2_weights : assets.t3_english_weights,
-            execution_context,
-            t3_weight_storage_type,
-            false),
-        load_chatterbox_english_tokenizer(
-            use_multilingual ? assets.multilingual_tokenizer : assets.english_tokenizer),
-        VoiceEncoderComponent::load_from_model_root(assets.model_root, options.backend),
-        S3TokenizerComponent::load_from_checkpoint(
-            assets.s3tokenizer_weights,
-            execution_context,
-            component_weight_storage_type),
-        CAMPPlusEncoderComponent::load_from_checkpoint(
-            assets.s3gen_weights,
-            execution_context,
-            component_weight_storage_type),
-        load_s3_flow_encoder_weights(
-            assets.s3gen_weights,
-            execution_context,
-            component_weight_storage_type),
-        load_s3_flow_decoder_weights(
-            assets.s3gen_weights,
-            execution_context,
-            component_weight_storage_type),
-        HiFTVocoderComponent::load_from_checkpoint(
-            assets.s3gen_weights,
-            execution_context,
-            component_weight_storage_type),
+    const auto & t3_source = use_multilingual
+        ? (multilingual_t3_version == ChatterboxMultilingualT3Version::V3
+               ? *assets.t3_multilingual_v3_weights
+               : *assets.t3_multilingual_v2_weights)
+        : *assets.t3_english_weights;
+    auto t3_weights = load_t3_inference_weights(
+        t3_source,
+        execution_context,
+        t3_weight_storage_type,
+        false);
+    auto tokenizer = load_chatterbox_english_tokenizer(
+        use_multilingual
+            ? assets.resources.require_file("multilingual_tokenizer")
+            : assets.resources.require_file("english_tokenizer"));
+    auto voice_encoder = VoiceEncoderComponent::load_from_source(*assets.voice_encoder_weights, options.backend);
+    auto s3_tokenizer = S3TokenizerComponent::load_from_source(
+        *assets.s3gen_weights,
+        execution_context,
+        component_weight_storage_type);
+    engine::codecs::s3gen::S3GenConfig s3gen_config;
+    auto s3gen = std::make_unique<engine::codecs::s3gen::S3GenRuntime>(
+        assets.s3gen_weights, execution_context, s3gen_config,
+        engine::codecs::s3gen::S3GenRuntimeOptions{component_weight_storage_type});
+    auto campplus_encoder = CAMPPlusEncoderComponent::load_from_source(
+        assets.s3gen_weights,
+        execution_context,
+        component_weight_storage_type);
+    release_tensor_storage(assets);
+    return std::make_unique<ChatterboxTTSComponent>(
+        std::move(t3_weights),
+        std::move(tokenizer),
+        std::move(voice_encoder),
+        std::move(s3_tokenizer),
+        std::move(campplus_encoder),
+        std::move(s3gen),
         make_prompt_prep_config(options),
         execution_context,
         mem_saver);
 }
 
-std::unique_ptr<ChatterboxVcComponent> make_chatterbox_vc_component(
-    const ChatterboxAssetPaths & assets,
+std::unique_ptr<ChatterboxVCComponent> make_chatterbox_vc_component(
+    const ChatterboxAssets & assets,
     const runtime::SessionOptions & options,
     const engine::core::ExecutionContext & execution_context,
     engine::assets::TensorStorageType component_weight_storage_type,
     bool mem_saver) {
-    require_chatterbox_vc_assets(assets);
-    return std::make_unique<ChatterboxVcComponent>(
-        S3TokenizerComponent::load_from_checkpoint(
-            assets.s3tokenizer_weights,
-            execution_context,
-            component_weight_storage_type),
-        CAMPPlusEncoderComponent::load_from_checkpoint(
-            assets.s3gen_weights,
-            execution_context,
-            component_weight_storage_type),
-        load_s3_flow_encoder_weights(
-            assets.s3gen_weights,
-            execution_context,
-            component_weight_storage_type),
-        load_s3_flow_decoder_weights(
-            assets.s3gen_weights,
-            execution_context,
-            component_weight_storage_type),
-        HiFTVocoderComponent::load_from_checkpoint(
-            assets.s3gen_weights,
-            execution_context,
-            component_weight_storage_type),
-        make_prompt_prep_config(options),
+    auto s3_tokenizer = S3TokenizerComponent::load_from_source(
+        *assets.s3gen_weights,
         execution_context,
+        component_weight_storage_type);
+    engine::codecs::s3gen::S3GenConfig s3gen_config;
+    auto s3gen = std::make_unique<engine::codecs::s3gen::S3GenRuntime>(
+        assets.s3gen_weights, execution_context, s3gen_config,
+        engine::codecs::s3gen::S3GenRuntimeOptions{component_weight_storage_type});
+    auto campplus_encoder = CAMPPlusEncoderComponent::load_from_source(
+        assets.s3gen_weights,
+        execution_context,
+        component_weight_storage_type);
+    release_tensor_storage(assets);
+    return std::make_unique<ChatterboxVCComponent>(
+        std::move(s3_tokenizer),
+        std::move(campplus_encoder),
+        std::move(s3gen),
+        make_prompt_prep_config(options),
         mem_saver);
 }
 
-std::shared_ptr<const ChatterboxAssetPaths> require_assets(std::shared_ptr<const ChatterboxAssetPaths> assets) {
+std::shared_ptr<const ChatterboxAssets> require_assets(std::shared_ptr<const ChatterboxAssets> assets) {
     if (assets == nullptr) {
         throw std::runtime_error("Chatterbox session requires assets");
     }
@@ -243,6 +261,7 @@ void validate_chatterbox_options(const runtime::SessionOptions & options) {
         if (key.rfind("chatterbox.", 0) == 0 &&
             key != "chatterbox.weight_type" &&
             key != "chatterbox.t3_weight_type" &&
+            key != "chatterbox.multilingual_t3" &&
             key != "chatterbox.conditionals_cache_slots" &&
             key != "chatterbox.mem_saver" &&
             key != "chatterbox.encoder_condition_samples" &&
@@ -270,6 +289,18 @@ engine::assets::TensorStorageType resolve_component_weight_storage_type(const ru
         engine::assets::TensorStorageType::Native);
     validate_chatterbox_weight_storage(storage_type, "chatterbox.weight_type");
     return storage_type;
+}
+
+ChatterboxMultilingualT3Version resolve_multilingual_t3_version(const runtime::SessionOptions & options) {
+    const auto value = runtime::find_option(options.options, {"chatterbox.multilingual_t3", "multilingual_t3"})
+                           .value_or("v2");
+    if (value == "v2") {
+        return ChatterboxMultilingualT3Version::V2;
+    }
+    if (value == "v3") {
+        return ChatterboxMultilingualT3Version::V3;
+    }
+    throw std::runtime_error("chatterbox.multilingual_t3 must be v2 or v3");
 }
 
 std::size_t resolve_conditionals_cache_slots(const runtime::SessionOptions & options) {
@@ -307,17 +338,19 @@ bool ChatterboxConditionalsCacheKeyEqual::operator()(
 ChatterboxSession::ChatterboxSession(
     runtime::TaskSpec task,
     runtime::SessionOptions options,
-    std::shared_ptr<const ChatterboxAssetPaths> assets)
+    std::shared_ptr<const ChatterboxAssets> assets)
     : RuntimeSessionBase(options),
       task_(std::move(task)),
       assets_(require_assets(std::move(assets))),
       t3_weight_storage_type_(resolve_t3_weight_storage_type(this->options())),
       component_weight_storage_type_(resolve_component_weight_storage_type(this->options())),
+      multilingual_t3_version_(resolve_multilingual_t3_version(this->options())),
       mem_saver_(resolve_mem_saver(this->options())),
       conditionals_cache_(resolve_conditionals_cache_slots(this->options())) {
-    if (task_.task != runtime::VoiceTaskKind::VoiceCloning &&
+    if (task_.task != runtime::VoiceTaskKind::Tts &&
+        task_.task != runtime::VoiceTaskKind::VoiceCloning &&
         task_.task != runtime::VoiceTaskKind::VoiceConversion) {
-        throw std::runtime_error("Chatterbox session supports --task clon or --task vc");
+        throw std::runtime_error("Chatterbox session supports --task tts, --task clon, or --task vc");
     }
     if (task_.mode != runtime::RunMode::Offline) {
         throw std::runtime_error("Chatterbox session only supports offline mode");
@@ -368,6 +401,7 @@ void ChatterboxSession::prepare(const runtime::SessionPreparationRequest & reque
             execution_context(),
             t3_weight_storage_type_,
             component_weight_storage_type_,
+            multilingual_t3_version_,
             mem_saver_,
             session_config.language);
         component_language_ = session_config.language;
@@ -472,6 +506,51 @@ runtime::TaskResult ChatterboxSession::run_voice_cloning(const runtime::TaskRequ
         throw std::runtime_error("Chatterbox voice cloning session config is fixed; create a new session for different config");
     }
 
+    const ChatterboxConditionalsOutputs * conditionals = &*cached_conditionals_;
+    double prompt_prep_ms = cached_prompt_prep_ms_;
+    std::optional<ChatterboxConditionalsOutputs> uncached_conditionals;
+    if (request.voice.has_value() &&
+        request.voice->speaker.has_value() &&
+        request.voice->speaker->audio.has_value()) {
+        const auto & reference_audio = *request.voice->speaker->audio;
+        ChatterboxConditionalsCacheKey conditionals_key{
+            reference_audio,
+            request_config.exaggeration,
+            request_config.language,
+        };
+        if (const auto * cache_entry = conditionals_cache_.find(conditionals_key)) {
+            conditionals = cache_entry;
+            prompt_prep_ms = 0.0;
+            engine::debug::trace_log_scalar("chatterbox.conditionals.cache_hit", 1);
+        } else {
+            const auto prompt_prep_started = std::chrono::steady_clock::now();
+            auto prepared_conditionals = component_->prepare_voice_clone_conditionals(
+                reference_audio,
+                request_config);
+            prompt_prep_ms =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prompt_prep_started).count();
+            if (conditionals_cache_.capacity() == 0) {
+                uncached_conditionals = std::move(prepared_conditionals);
+                conditionals = &*uncached_conditionals;
+            } else {
+                conditionals_cache_.put(std::move(conditionals_key), std::move(prepared_conditionals));
+                const auto * cache_entry = conditionals_cache_.find(ChatterboxConditionalsCacheKey{
+                    reference_audio,
+                    request_config.exaggeration,
+                    request_config.language,
+                });
+                if (cache_entry == nullptr) {
+                    throw std::runtime_error("Chatterbox conditionals cache insert failed");
+                }
+                conditionals = cache_entry;
+            }
+            engine::debug::trace_log_scalar("chatterbox.conditionals.cache_hit", 0);
+        }
+        engine::debug::trace_log_scalar(
+            "chatterbox.conditionals.cache_slots",
+            static_cast<int64_t>(conditionals_cache_.capacity()));
+    }
+
     runtime::TaskResult result;
     runtime::AudioBuffer merged_audio;
     const int64_t text_chunk_size =
@@ -482,9 +561,9 @@ runtime::TaskResult ChatterboxSession::run_voice_cloning(const runtime::TaskRequ
     for (const auto & chunk_request : chunk_requests) {
         auto outputs = component_->synthesize_voice_clone_with_conditionals(
             chunk_request.text_input->text,
-            *cached_conditionals_,
+            *conditionals,
             *voice_clone_config_);
-        outputs.prompt_prep_ms = cached_prompt_prep_ms_;
+        outputs.prompt_prep_ms = prompt_prep_ms;
         runtime::append_audio_buffer(merged_audio, runtime::AudioBuffer{
             24000,
             1,

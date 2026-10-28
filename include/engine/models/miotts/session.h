@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace engine::models::miocodec {
@@ -21,7 +22,7 @@ class MioCodecWaveformReconstructor;
 namespace engine::models::miotts {
 
 struct MioTTSAssets;
-class MioTTSCausalLMRuntime;
+class MioTTSQwen3Runtime;
 class MioTTSTokenizer;
 
 class MioTTSSession final
@@ -45,7 +46,7 @@ private:
 
     runtime::TaskSpec task_;
     std::shared_ptr<const MioTTSAssets> assets_;
-    int64_t text_chunk_size_ = 180;
+    std::optional<int64_t> text_chunk_size_;
     bool best_of_n_enabled_ = false;
     int best_of_n_default_ = 1;
     int best_of_n_max_ = 8;
@@ -54,7 +55,7 @@ private:
     std::shared_ptr<const miocodec::MioCodecAssets> codec_assets_;
     std::shared_ptr<const miocodec::MioCodecWeights> codec_weights_;
     std::unique_ptr<MioTTSTokenizer> tokenizer_;
-    std::unique_ptr<MioTTSCausalLMRuntime> language_model_;
+    std::unique_ptr<MioTTSQwen3Runtime> language_model_;
     std::unique_ptr<runtime::ILoadedVoiceModel> best_of_n_asr_model_;
     std::unique_ptr<runtime::IVoiceTaskSession> best_of_n_asr_session_;
     bool best_of_n_asr_prepared_ = false;
