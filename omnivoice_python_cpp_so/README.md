@@ -66,16 +66,21 @@ It adds the line only once.
 
 ### CUDA architecture
 
-`build.sh` sets `-DCMAKE_CUDA_ARCHITECTURES=89`, which is the compute capability of the RTX 4090.
+`build.sh` sets:
 
-Without this setting, CMake falls back to nvcc's default architecture, `52` (Maxwell). The build still runs on newer GPUs, but slowly: the CUDA code is JIT-compiled at startup and ggml leaves out its tensor-core and int8 fast paths.
+```
+-DCMAKE_CUDA_ARCHITECTURES="75-real;86-real;89-real;89-virtual"
+```
 
-Setting it trades portability for speed:
+One `.so` then runs on the Tesla T4 (`75`), RTX 3090 (`86`), RTX 4090 (`89`) and RTX 5090:
 
-- **Advantages:** faster inference (ggml's fast GPU paths are compiled in), no JIT delay at startup, faster build and smaller `.so`.
-- **Disadvantages:** the `.so` fails on older GPUs ("no kernel image" error), newer GPUs miss their latest fast paths, and you must update the value and rebuild when the GPU changes. Listing several architectures makes the build slower and the `.so` bigger.
+- `XX-real` is machine code for that GPU, so it starts without a JIT step and uses ggml's fast paths.
+- `89-virtual` is PTX. GPUs newer than the 4090, such as the RTX 5090, JIT-compile it at first load. The driver caches the result in `~/.nv/ComputeCache`; in Docker, mount that folder and set `CUDA_CACHE_MAXSIZE=2147483648` so the JIT runs only once.
+- A GPU older than the T4 fails with "no kernel image".
 
-Set the value to match the GPU that will run the model:
+Without this setting, the root `CMakeLists.txt` picks a portable list for the installed CUDA version (on CUDA 12.6: `50-virtual;61-virtual;70-virtual;75-real;80-virtual;86-real;89-real;90-virtual`). It runs the same on the GPUs above, but the build is about twice as heavy and the `.so` is bigger. Older audio.cpp code (before upstream #280) had no such list and built for nvcc's default, `52`.
+
+To target other GPUs, change the list:
 
 | GPU | Value |
 |---|---|
@@ -85,7 +90,11 @@ Set the value to match the GPU that will run the model:
 | RTX 5090 | `120` |
 | Several GPUs | semicolon-separated list, e.g. `"75;89"` |
 
-`120` (RTX 5090) needs CUDA 12.8 or newer. This machine has CUDA 12.6, which cannot build for it.
+`120` (RTX 5090) needs CUDA 12.8 or newer. This machine has CUDA 12.6, which cannot build for it, so the 5090 uses the `89-virtual` PTX. With CUDA 12.8+, add `120-real`.
+
+`build.sh` runs `cmake --build` with `--parallel "${JOBS:-16}"`. Each CUDA compile job can take several GB of RAM, so on a shared machine lower it, e.g. `JOBS=8 ./omnivoice_python_cpp_so/build.sh`. Never use `--parallel` without a number: with Makefiles it starts unlimited jobs and can freeze the machine.
+
+The build type is `RelWithDebInfo`, which adds about 1 GB of debug info. `build.sh` removes it with `strip --strip-debug`; the code is unchanged.
 
 To find a GPU's compute capability:
 
@@ -100,10 +109,11 @@ rm -rf build-py312
 ./omnivoice_python_cpp_so/build.sh
 ```
 
-To check the build, run the command below. The output should show `sm_89`, not `sm_52`:
+To check the built `.so`, list its GPU code. It should show `sm_75`, `sm_86` and `sm_89` machine code plus `sm_89` PTX:
 
 ```bash
-grep -o "generate-code=[^ ]*" build-py312/ggml/src/ggml-cuda/CMakeFiles/ggml-cuda.dir/flags.make
+cuobjdump --list-elf omnivoice_python_cpp_so/omnivoice_cpp*.so | grep -o 'sm_[0-9]*' | sort | uniq -c
+cuobjdump --list-ptx omnivoice_python_cpp_so/omnivoice_cpp*.so | grep -o 'sm_[0-9]*' | sort | uniq -c
 ```
 
 To make sure the RTX 4090 (GPU 0 on this machine) is used at runtime:

@@ -37,7 +37,7 @@ echo "  $PYBIND11_DIR"
 
 cmake -S . -B "$BUILD_DIR" \
     -DENGINE_ENABLE_CUDA=ON \
-    -DCMAKE_CUDA_ARCHITECTURES=89 \
+    -DCMAKE_CUDA_ARCHITECTURES="75-real;86-real;89-real;89-virtual" \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DPYBIND11_FINDPYTHON=ON \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
@@ -45,8 +45,11 @@ cmake -S . -B "$BUILD_DIR" \
     -Dpybind11_DIR="$PYBIND11_DIR"
 
 cmake --build "$BUILD_DIR" \
-    --parallel \
+    --parallel "${JOBS:-16}" \
     --target omnivoice_cpp audiocpp_cli audiocpp_server
+
+# RelWithDebInfo keeps about 1 GB of debug info in the .so; drop it (code is unchanged).
+strip --strip-debug "$SCRIPT_DIR"/omnivoice_cpp*.so
 
 echo
 echo "Built module:"
