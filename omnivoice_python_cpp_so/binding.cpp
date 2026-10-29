@@ -62,7 +62,8 @@ public:
         int device,
         int threads,
         const std::string & generator_weight_type,
-        const std::string & audio_tokenizer_weight_type
+        const std::string & audio_tokenizer_weight_type,
+        const std::string & audio_tokenizer_codebook_weight_type
     )
         : ref_audio_(read_audio(ref_audio)),
           ref_text_(ref_text) {
@@ -87,6 +88,10 @@ public:
         session_options.options[
             "omnivoice.audio_tokenizer_weight_type"
         ] = audio_tokenizer_weight_type;
+
+        session_options.options[
+            "omnivoice.audio_tokenizer_codebook_weight_type"
+        ] = audio_tokenizer_codebook_weight_type;
 
         const engine::runtime::TaskSpec task{
             engine::runtime::VoiceTaskKind::Tts,
@@ -220,6 +225,7 @@ PYBIND11_MODULE(omnivoice_cpp, module) {
                 int,
                 int,
                 const std::string &,
+                const std::string &,
                 const std::string &
             >(),
             py::arg("model_path"),
@@ -229,7 +235,8 @@ PYBIND11_MODULE(omnivoice_cpp, module) {
             py::arg("device") = 0,
             py::arg("threads") = 4,
             py::arg("generator_weight_type") = "f16",
-            py::arg("audio_tokenizer_weight_type") = "f16"
+            py::arg("audio_tokenizer_weight_type") = "f16",
+            py::arg("audio_tokenizer_codebook_weight_type") = "f32"
         )
         .def(
             "generate",
