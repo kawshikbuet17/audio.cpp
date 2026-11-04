@@ -15,6 +15,8 @@ requests, one each. N grows until an instance no longer fits.
 Engines:
   python           OmniVoice.from_pretrained(dtype=fp16), native batching:
                    model.generate(text=[text] * batch) runs the batch in one pass.
+  python_fi        python + apply_flashinfer(model) (OmniVoice commit 28bc088).
+  python_fi_graph  python_fi + CUDA graphs (enable_cuda_graph=True).
   cpp              omnivoice_cpp.OmniVoice(generator f16, audio tokenizer f16).
                    The binding has no batch API, so a batch of N is N sequential
                    generate() calls (what the Triton model.py does today).
@@ -78,15 +80,24 @@ INSTANCES_NAME = "instances.jsonl"
 # The untimed utilization run is repeated until it lasts this long.
 UTIL_MIN_SECONDS = 1.5
 
-ALL_ENGINES = ["python", "cpp"]
+ALL_ENGINES = ["python", "python_fi", "python_fi_graph", "cpp"]
 ENGINE_NAMES = {
     "python": "Python",
+    "python_fi": "Python + FlashInfer",
+    "python_fi_graph": "Python + FlashInfer + CUDA graphs",
     "cpp": "C++",
 }
 ENGINE_DESCRIPTIONS = {
     "python": "OmniVoice fp16, native batching, `generate(text=[text] * batch)`: the "
     "generator runs the whole batch together; audio decode and post-processing still "
     "loop per item. No language.",
+    "python_fi": "same as Python, plus `apply_flashinfer(model)` (OmniVoice commit "
+    "28bc088): cond/uncond packed into one row with FlashInfer ragged attention, fused "
+    "RMSNorm/RoPE/QKV/MLP kernels, KV cache off.",
+    "python_fi_graph": "same as Python + FlashInfer, plus `enable_cuda_graph=True`: one "
+    "CUDA graph per packed shape, replayed for every step. A new shape (batch size or "
+    "text length) is captured on first use; the per-point warmup does that here, and the "
+    "graph cache is cleared before each point.",
     "cpp": "`.so` generator f16, audio tokenizer f16 (codebook f32, the binding default), "
     "`language=\"bn\"`, NFC-normalized text. **No batch API: a batch of N is N "
     "sequential calls.**",
@@ -282,7 +293,7 @@ def gpu_numa_cpus(gpu):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def load_python_engine(args, ref_text):
+def load_python_engine(args, ref_text, flashinfer=None):
     import torch
     from omnivoice import OmniVoice
 
@@ -291,6 +302,11 @@ def load_python_engine(args, ref_text):
         device_map="cuda:0",
         dtype=torch.float16,
     )
+
+    if flashinfer is not None:
+        from omnivoice.models.omnivoice_flashinfer import apply_flashinfer
+
+        apply_flashinfer(model, enable_cuda_graph=(flashinfer == "graph"))
 
     prompt = model.create_voice_clone_prompt(
         ref_audio=args.ref_audio,
@@ -321,8 +337,12 @@ def load_python_engine(args, ref_text):
         generate_batch([text] * batch, args.seed)
 
     def reset_peak():
-        # Release cached blocks so nvidia-smi reflects this point, and
+        # Drop CUDA graphs captured for earlier points (one per shape), then
+        # release cached blocks so nvidia-smi reflects this point, and
         # restart the peak counter.
+        graph_cache = getattr(model, "_fi_graph_cache", None)
+        if graph_cache:
+            graph_cache.clear()
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
@@ -556,6 +576,10 @@ def load_engine(args, engine):
     ref_text = Path(args.ref_text_file).read_text(encoding="utf-8").strip()
     if engine == "python":
         return load_python_engine(args, ref_text)
+    if engine == "python_fi":
+        return load_python_engine(args, ref_text, flashinfer="plain")
+    if engine == "python_fi_graph":
+        return load_python_engine(args, ref_text, flashinfer="graph")
     if engine == "cpp":
         return load_cpp_engine(args, ref_text)
     raise ValueError(f"Unknown engine: {engine}")
